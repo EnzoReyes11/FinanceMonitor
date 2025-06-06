@@ -3,8 +3,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from flask import Flask
-from flask import request as flask_request
+from flask import Flask, request
 
 # Load environment variables from .env file for local development
 load_dotenv()
@@ -32,16 +31,15 @@ def hello():
 @app.route("/iol", methods=["GET", "POST"])
 def route_iol_data():
     logger.info("Received request for /iol endpoint.")
-    # Pass the current Flask request object to the handler,
-    # as it's designed for a GCF-like environment.
-    return iol_api_handler(flask_request)
+
+    return iol_api_handler(request)
 
 
 @app.route("/alpha-vantage", methods=["GET", "POST"])
 def route_alpha_vantage_data():
     logger.info("Received request for /alpha-vantage endpoint.")
 
-    return alpha_vantage_handler(flask_request)
+    return alpha_vantage_handler(request)
 
 
 if __name__ == "__main__":

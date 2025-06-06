@@ -9,7 +9,7 @@ load_dotenv()
 
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 
@@ -95,15 +95,16 @@ def alpha_vantage_handler(request):
         logging.debug(request_data)
 
         for symbol in request_data.get("symbols", []):
+            logging.info("Requested symbol: %s", symbol)
             symbol_data = _get_symbol_latest(symbol)
 
         return jsonify(symbol_data)
 
     if request.method == "GET":
-        logging.debug(request.args)
+        logging.info("Request : %s", request.args)
         symbol = request.args.get("symbol") or ""
 
         symbol_data = _get_symbol_latest(symbol)
-        logging.debug(symbol_data)
+        logging.info(symbol_data)
 
         return jsonify(symbol_data)

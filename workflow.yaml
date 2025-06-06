@@ -1,100 +1,100 @@
 # /home/enzo/Projects/FinanceMonitor/finance_etl_workflow_av_list_bq_in_cr.yaml
-main:
-  params: [event]
-  steps:
-    - init_vars:
-        assign:
-          - cloud_run_base_url: ${sys.get_env("CLOUD_RUN_BASE_URL")}
-          - bq_project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
-          - bq_dataset_id: ${sys.get_env("BQ_DATASET")}
-          - bq_symbol_table_id: ${sys.get_env("BQ_SYMBOL_TABLE_NAME")}
-
-    - get_symbols_from_bq:
-        try:
-          call: googleapis.bigquery.v2.jobs.query
-          args:
-            projectId: ${bq_project_id}
-            body:
-              query: ${"SELECT symbol FROM `" + bq_project_id + "." + bq_dataset_id + "." + bq_symbol_table_id + "`"}
-              useLegacySql: false
-          result: bq_symbols_query_result
-        except:
-          as: e
-          steps:
-            - log_bq_symbol_query_error:
-                call: sys.log
-                args:
-                  text: ${"Error querying symbols from BigQuery \n" + e.message}
-            - fail_symbol_query:
-                raise: ${e}
-
-    - extract_symbols:
-        assign:
-          - stock_symbols_list: ${[row.f[0].v for row in bq_symbols_query_result.body.rows]}
-        # Add a check if stock_symbols_list is empty and handle if necessary (e.g., skip AV branch)
-
-    - process_apis_in_parallel:
-        parallel:
-          branches:
-            - iol_data_branch:
-                steps:
-                  - call_iol_endpoint_and_load_bq:
-                      try:
-                        call: http.get # Or http.post if your /iol endpoint expects POST
-                        args:
-                          url: ${cloud_run_base_url + "/iol"}
-                          auth:
-                            type: OIDC # Assumes private Cloud Run service
-                          timeout: 180 # Timeout for API call + BQ write
-                        result: iol_cr_response
-                        # The Cloud Run /iol endpoint handles BQ write.
-                        # Workflow just checks if the call was successful.
-                      except:
-                        as: e
-                        steps:
-                          - log_iol_cr_call_error:
-                              call: sys.log
-                              args:
-                                text: ${"Error calling IOL Cloud Run endpoint\n" + e.message + "; Response\n" + json.encode_to_string(e.response.body)}
-
-            - alpha_vantage_data_branch:
-                # This branch will only run if symbols were found
-                switch:
-                  - condition: ${len(stock_symbols_list) > 0}
-                    steps:
-                      - call_av_endpoint_with_list_and_load_bq:
-                          try:
-                            call: http.post # Alpha Vantage endpoint now expects POST
-                            args:
-                              url: ${cloud_run_base_url + "/alpha-vantage"}
-                              auth:
-                                type: OIDC # Assumes private Cloud Run service
-                              headers:
-                                Content-Type: "application/json"
-                              body:
-                                symbols: ${stock_symbols_list} # Pass the list of symbols
-                              timeout: 300 # Timeout for processing all symbols + BQ write
-                            result: av_cr_response
-                            # The Cloud Run /alpha-vantage endpoint handles fetching all symbols in the list
-                            # and then writing the batched results to BigQuery.
-                          except:
-                            as: e
-                            steps:
-                              - log_av_cr_call_error:
-                                  call: sys.log
-                                  args:
-                                    text: ${"Error calling Alpha Vantage Cloud Run endpoint with symbol list \n" + e.message + "; Response \n" + json.encode_to_string(e.response.body)}
-                  - condition: ${true} # Default case if no symbols
-                    steps:
-                      - log_no_av_symbols:
-                          call: sys.log
-                          args:
-                            text: "No symbols found in BigQuery to process for Alpha Vantage."
-    - final_log:
-        call: sys.log
-        args:
-          text: "Finance ETL Workflow (parallel, AV list, BQ in CR) completed."
-
+#main:
+#  params: [event]
+#  steps:
+#    - init_vars:
+#        assign:
+#          - cloud_run_base_url: ${sys.get_env("CLOUD_RUN_BASE_URL")}
+#          - bq_project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+#          - bq_dataset_id: ${sys.get_env("BQ_DATASET")}
+#          - bq_symbol_table_id: ${sys.get_env("BQ_SYMBOL_TABLE_NAME")}
+#
+#    - get_symbols_from_bq:
+#        try:
+#          call: googleapis.bigquery.v2.jobs.query
+#          args:
+#            projectId: ${bq_project_id}
+#            body:
+#              query: ${"SELECT symbol FROM `" + bq_project_id + "." + bq_dataset_id + "." + bq_symbol_table_id + "`"}
+#              useLegacySql: false
+#          result: bq_symbols_query_result
+#        except:
+#          as: e
+#          steps:
+#            - log_bq_symbol_query_error:
+#                call: sys.log
+#                args:
+#                  text: ${"Error querying symbols from BigQuery \n" + e.message}
+#            - fail_symbol_query:
+#                raise: ${e}
+#
+#    - extract_symbols:
+#        assign:
+#          - stock_symbols_list: ${[row.f[0].v for row in bq_symbols_query_result.body.rows]}
+#        # Add a check if stock_symbols_list is empty and handle if necessary (e.g., skip AV branch)
+#
+#    - process_apis_in_parallel:
+#        parallel:
+#          branches:
+#            - iol_data_branch:
+#                steps:
+#                  - call_iol_endpoint_and_load_bq:
+#                      try:
+#                        call: http.get # Or http.post if your /iol endpoint expects POST
+#                        args:
+#                          url: ${cloud_run_base_url + "/iol"}
+#                          auth:
+#                            type: OIDC # Assumes private Cloud Run service
+#                          timeout: 180 # Timeout for API call + BQ write
+#                        result: iol_cr_response
+#                        # The Cloud Run /iol endpoint handles BQ write.
+#                        # Workflow just checks if the call was successful.
+#                      except:
+#                        as: e
+#                        steps:
+#                          - log_iol_cr_call_error:
+#                              call: sys.log
+#                              args:
+#                                text: ${"Error calling IOL Cloud Run endpoint\n" + e.message + "; Response\n" + json.encode_to_string(e.response.body)}
+#
+#            - alpha_vantage_data_branch:
+#                # This branch will only run if symbols were found
+#                switch:
+#                  - condition: ${len(stock_symbols_list) > 0}
+#                    steps:
+#                      - call_av_endpoint_with_list_and_load_bq:
+#                          try:
+#                            call: http.post # Alpha Vantage endpoint now expects POST
+#                            args:
+#                              url: ${cloud_run_base_url + "/alpha-vantage"}
+#                              auth:
+#                                type: OIDC # Assumes private Cloud Run service
+#                              headers:
+#                                Content-Type: "application/json"
+#                              body:
+#                                symbols: ${stock_symbols_list} # Pass the list of symbols
+#                              timeout: 300 # Timeout for processing all symbols + BQ write
+#                            result: av_cr_response
+#                            # The Cloud Run /alpha-vantage endpoint handles fetching all symbols in the list
+#                            # and then writing the batched results to BigQuery.
+#                          except:
+#                            as: e
+#                            steps:
+#                              - log_av_cr_call_error:
+#                                  call: sys.log
+#                                  args:
+#                                    text: ${"Error calling Alpha Vantage Cloud Run endpoint with symbol list \n" + e.message + "; Response \n" + json.encode_to_string(e.response.body)}
+#                  - condition: ${true} # Default case if no symbols
+#                    steps:
+#                      - log_no_av_symbols:
+#                          call: sys.log
+#                          args:
+#                            text: "No symbols found in BigQuery to process for Alpha Vantage."
+#    - final_log:
+#        call: sys.log
+#        args:
+#          text: "Finance ETL Workflow (parallel, AV list, BQ in CR) completed."
+#
 
 main:
     steps:
@@ -105,62 +105,87 @@ main:
         - bq_dataset_id: ${sys.get_env("BQ_DATASET")}
         - bq_ar_table_id: ${sys.get_env("BQ_AR_TABLE_NAME")}
         - table_ar: '${bq_project_id + "." + bq_dataset_id + "." + bq_ar_table_id}'
+        - bq_us_table_id: ${sys.get_env("BQ_US_TABLE_NAME")}
 
     - us_market_branch:
         steps:
-        - assign: 
-            - bq_us_table_id: ${sys.get_env("BQ_US_TABLE_NAME")}
-            - table_us: '${bq_project_id + "." + bq_dataset_id + "." + bq_us_table_id}'
+        - query_database:
+            call: query_database
+            args:
+                full_table_name: '${bq_project_id + "." + bq_dataset_id + "." + bq_us_table_id}' 
+            result: us_symbols
 
+        - process_query_result:
+            switch:
+                - condition: ${len(us_symbols) > 0}
+                  steps:
+                    - init_us_market:
+                        assign:
+                        - us_market_values: []
+                    - iterate_symbols:
+                        for:
+                            value: row
+                            in: ${us_symbols}
+                            steps:
+                            - init_iterate_symbols:
+                                assign:
+                                - symbol: ${row.f[0].v}
+                            - call_av_endpoint_with_list_and_load_bq:
+                                call: av_api_call
+                                args:
+                                    symbol: ${symbol}
+                                    cloud_run_base_url: ${cloud_run_base_url}
+                                result: av_response
+                            - prepare_next:
+                                assign: 
+                                    - us_market_value: ${list.concat(us_market_values, av_response)}
+                            
+
+                - condition: ${true}
+                  steps:
+                    - log_no_av_symbols:
+                        call: sys.log
+                        args:
+                            text: "No symbols found in BigQuery to process for Alpha Vantage."
+
+
+query_database:
+    params: [full_table_name]
+    steps: 
         - runQuery:
             call: googleapis.bigquery.v2.jobs.query
             args:
                 projectId: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
                 body:
                     useLegacySql: false
-                    query: '${"SELECT symbol FROM `"+table_us+"`"}'
+                    query: '${"SELECT symbol FROM `"+full_table_name+"`"}'
             result: queryResult
-        - init_header_row:
-            assign:
-            - us_symbols: []
-        - process_query_result:
-            for:
-                value: row
-                in: ${queryResult.rows}
+        - done:
+            return: ${queryResult.rows}
+
+
+av_api_call:
+    params: [symbol, cloud_run_base_url]
+    steps:
+        - call_api:
+            try:
+                call: http.get 
+                args:
+                    url: ${cloud_run_base_url + "/alpha-vantage" + "?symbol=" + symbol}
+                    auth:
+                        type: OIDC 
+                    timeout: 1800 
+                result: av_response
+            except:
+                as: e
                 steps:
-                - process_each_row:
-                    assign:
-                    - symbol: ${row.f[0].v}
-                    - us_symbols: ${list.concat(us_symbols, symbol)}
-        - alpha_vantage_data:
-            switch:
-                - condition: ${len(us_symbols) > 0}
-                  steps:
-                    - call_av_endpoint_with_list_and_load_bq:
-                        try:
-                            call: http.post # Alpha Vantage endpoint now expects POST
-                            args:
-                                url: ${cloud_run_base_url + "/alpha-vantage"}
-                                auth:
-                                    type: OIDC # Assumes private Cloud Run service
-                                headers:
-                                    Content-Type: "application/json"
-                                body:
-                                    symbols: ${us_symbols} # Pass the list of symbols
-                                timeout: 1800 # Timeout for processing all symbols + BQ write
-                            result: av_cr_response
-                        # The Cloud Run /alpha-vantage endpoint handles fetching all symbols in the list
-                        # and then writing the batched results to BigQuery.
-                        except:
-                            as: e
-                            steps:
-                                - log_av_cr_call_error:
-                                    call: sys.log
-                                    args:
-                                        text: '${"Error calling Alpha Vantage Cloud Run endpoint with symbol list: " + e.message + "; Response: " + json.encode_to_string(e)}'
-                - condition: ${true} # Default case if no symbols
-                  steps:
-                    - log_no_av_symbols:
+                    - log_av_cr_call_error:
                         call: sys.log
                         args:
-                            text: "No symbols found in BigQuery to process for Alpha Vantage."
+                            text: '${"Error calling Alpha Vantage Cloud Run endpoint with symbol list: " + e.message + "; Response: " + json.encode_to_string(e)}'
+        - sys_log:
+                call: sys.log
+                args:
+                    text: '${"AV Response: " + json.encode_to_string(av_response)}'
+        - done: 
+            return: ${av_response}
