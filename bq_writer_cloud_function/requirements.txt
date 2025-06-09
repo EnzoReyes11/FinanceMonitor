@@ -1,0 +1,4 @@
+# /home/enzo/Projects/FinanceMonitor/bq_writer_cloud_function/requirements.txt
+functions-framework==3.*
+google-cloud-bigquery-storage>=2.13.0,<3.0.0dev
+protobuf>=3.19.0,<5.0.0dev
