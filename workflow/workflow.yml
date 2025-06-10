@@ -11,13 +11,13 @@ main:
 
         - us_market_branch:
               steps:
-                  - query_database:
+                    - get_symbols:
                         call: query_database
                         args:
                             full_table_name: '${bq_project_id + "." + bq_dataset_id + "." + bq_us_table_id}'
                         result: us_symbols
 
-                  - process_query_result:
+                    - get_new_values:
                         switch:
                             - condition: ${len(us_symbols) > 0}
                               steps:
@@ -32,7 +32,7 @@ main:
                                                 - init_iterate_symbols:
                                                     assign:
                                                         - symbol: ${row.f[0].v}
-                                                - get_latest_us_values:
+                                                - call_function:
                                                     call: av_api_call
                                                     args:
                                                         symbol: ${symbol}
@@ -40,7 +40,8 @@ main:
                                                     result: av_response
                                                 - prepare_next:
                                                       assign:
-                                                          - us_market_value: ${list.concat(us_market_values, av_response)}
+                                                          - new_value: ['${av_response.symbol}', '${av_response.price}', 'US', '${av_response.date}']
+                                                          - us_market_values: ${list.concat(us_market_values, new_value)}
                                     
 
                             - condition: ${true}
@@ -49,6 +50,20 @@ main:
                                         call: sys.log
                                         args:
                                             text: "No symbols found in BigQuery to process for Alpha Vantage."
+                    - write_new_values:
+                        call: http.post
+                        args:
+                            url: ${cloud_run_base_url + "/bq-batch-load"}
+                            auth:
+                                type: OIDC
+                            timeout: 1800
+                            body:
+                                symbols:  ${us_market_values}
+                            headers: 
+                                Content-Type: application/json
+
+                        result: av_response
+                    
 
 query_database:
     params: [full_table_name]
@@ -83,9 +98,26 @@ av_api_call:
                         call: sys.log
                         args:
                             text: '${"Error calling Alpha Vantage Cloud Run endpoint with symbol list: " + e.message + "; Response: " + json.encode_to_string(e)}'
+                    - known_errors:
+                        switch:
+                            - condition: ${not("HttpError" in e.tags)}
+                              next: connection_problem
+                            - condition: ${e.code == 404}
+                              next: url_not_found
+                            - condition: ${e.code == 403}
+                              next: auth_problem
+                    - unhandled_exception:
+                        raise: ${e}
+
         - log_api_calls_response:
             call: sys.log
             args:
                   text: '${"AV Response: " + json.encode_to_string(av_response)}'
         - done:
-              return: ${av_response}
+              return: ${av_response.body}
+        - connection_problem:
+            return: "Connection problem; check URL"
+        - url_not_found:
+            return: "Sorry, URL wasn't found"
+        - auth_problem:
+            return: "Authentication error"

@@ -9,6 +9,7 @@ from flask import Flask, request
 load_dotenv()
 
 from alphavantage import alpha_vantage_handler  # noqa: E402
+from bq import bq_batch_load_handler  # noqa: E402
 from iol import iol_api_handler  # noqa: E402
 
 # Configure logging. Cloud Run will capture stdout/stderr.
@@ -23,7 +24,7 @@ app = Flask(__name__)
 
 
 @app.route("/")
-def hello():
+def start():
     logger.info("Root path '/' was called.")
     return "Finance Monitor API is running!"
 
@@ -40,6 +41,13 @@ def route_alpha_vantage_data():
     logger.info("Received request for /alpha-vantage endpoint.")
 
     return alpha_vantage_handler(request)
+
+
+@app.route("/bq-batch-load", methods=["POST"])
+def route_bq_batch_load():
+    logger.info("Received request for /bq-batch-load endpoint.")
+
+    return bq_batch_load_handler(request)
 
 
 if __name__ == "__main__":

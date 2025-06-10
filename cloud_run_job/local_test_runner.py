@@ -2,9 +2,9 @@
 import logging
 import os
 
-from flask import Flask, request
-
 from alphavantage import alpha_vantage_handler
+from bq import bq_batch_load_handler
+from flask import Flask, request
 from iol import iol_api_handler
 
 logging.basicConfig(
@@ -87,5 +87,25 @@ def run_alpha_vantage_tests():
         logging.exception("An unexpected error occurred during testing.")
 
 
+def run_bq_batch_load():
+    try:
+        app = Flask(__name__)
+
+        with app.test_request_context(
+            "/bq-batch-load",
+            method="POST",
+            json={"symbols": [["AAPL", 42, "US", "2025-06-10T00:00:00"]]},
+        ):
+            logging.info('Testing POST request to "/bq-batch-load"')
+            bq_batch_load_handler(request)
+
+        with app.test_request_context("/bq-batch-load", method="GET"):
+            logging.info('Testing GET request to "/bq-batch-load"')
+            bq_batch_load_handler(request)
+    except Exception:
+        logging.exception("An unexpected error occurred during testing.")
+
+
 if __name__ == "__main__":
     run_alpha_vantage_tests()
+    # run_bq_batch_load()

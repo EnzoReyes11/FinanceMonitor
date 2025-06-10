@@ -58,19 +58,27 @@ def _get_symbol_latest(symbol):
             latest_date = metadata.get("3. Last Refreshed")
             if latest_date and latest_date in data_points:
                 latest_value = data_points[latest_date]
+        else:
+            logging.error("Alpha Vantage response missing expected values")
+            logging.error(f"Response: {stock_values_response}")
+
+            return None
 
         stock = None
         if latest_value:
             stock = {
                 "symbol": symbol,
-                "date": latest_date,
-                "values": {
-                    "open": latest_value.get("1. open"),
-                    "high": latest_value.get("2. high"),
-                    "low": latest_value.get("3. low"),
-                    "close": latest_value.get("4. close"),
-                    "volume": latest_value.get("5. volume"),
-                },
+                "price": latest_value.get("4. close"),
+                "market": "US",
+                "date": latest_date + "T00:00:00",
+                # Other possible values:
+                #                "values": {
+                #                    "open": latest_value.get("1. open"),
+                #                    "high": latest_value.get("2. high"),
+                #                    "low": latest_value.get("3. low"),
+                #                    "close": latest_value.get("4. close"),
+                #                    "volume": latest_value.get("5. volume"),
+                #                },
             }
 
         logging.debug("Latest info %s", stock)
@@ -98,6 +106,9 @@ def alpha_vantage_handler(request):
             logging.info("Requested symbol: %s", symbol)
             symbol_data = _get_symbol_latest(symbol)
 
+        if symbol_data is None:
+            return jsonify({"error": "Internal Server Error"}), 500
+
         return jsonify(symbol_data)
 
     if request.method == "GET":
@@ -105,6 +116,8 @@ def alpha_vantage_handler(request):
         symbol = request.args.get("symbol") or ""
 
         symbol_data = _get_symbol_latest(symbol)
-        logging.info(symbol_data)
+
+        if symbol_data is None:
+            return jsonify({"error": "Internal Server Error"}), 500
 
         return jsonify(symbol_data)

@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 COPY iol.py .
 COPY alphavantage.py .
+COPY bq.py .
 
 # Make port 8080 available to the world outside this container (Cloud Run default)
 EXPOSE 8080
