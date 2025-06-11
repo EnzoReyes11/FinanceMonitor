@@ -94,7 +94,7 @@ def run_bq_batch_load():
         with app.test_request_context(
             "/bq-batch-load",
             method="POST",
-            json={"symbols": [["AAPL", 42, "US", "2025-06-10T00:00:00"]]},
+            json={"symbols": [["AAPL", 42, "US", "2025-06-10"]]},
         ):
             logging.info('Testing POST request to "/bq-batch-load"')
             bq_batch_load_handler(request)
@@ -107,5 +107,5 @@ def run_bq_batch_load():
 
 
 if __name__ == "__main__":
-    run_alpha_vantage_tests()
-    # run_bq_batch_load()
+    # run_alpha_vantage_tests()
+    run_bq_batch_load()

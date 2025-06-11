@@ -15,6 +15,7 @@ main:
                         call: query_database
                         args:
                             full_table_name: '${bq_project_id + "." + bq_dataset_id + "." + bq_us_table_id}'
+                            bq_project_id: ${bq_project_id}
                         result: us_symbols
 
                     - get_new_values:
@@ -40,7 +41,7 @@ main:
                                                     result: av_response
                                                 - prepare_next:
                                                       assign:
-                                                          - new_value: ['${av_response.symbol}', '${av_response.price}', 'US', '${av_response.date}']
+                                                          - new_value: ['${av_response.ticker}', '${av_response.price}', 'US', '${av_response.date}']
                                                           - us_market_values: ${list.concat(us_market_values, new_value)}
                                     
 
@@ -66,18 +67,24 @@ main:
                     
 
 query_database:
-    params: [full_table_name]
+    params: [full_table_name, bq_project_id]
     steps:
+        - init:
+            assign:
+                - url: '${"https://bigquery.googleapis.com/bigquery/v2/projects/" + bq_project_id + "/queries"}'
         - runQuery:
-            call: googleapis.bigquery.v2.jobs.query
+            call: http.post
             args:
-                projectId: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+                url: ${url}
+                auth:
+                    type: OAuth2
+                    scopes: https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/bigquery
                 body:
                     useLegacySql: false
                     query: '${"SELECT symbol FROM `"+full_table_name+"`"}'
             result: queryResult
         - done:
-              return: ${queryResult.rows}
+              return: ${queryResult.body.rows}
 
 av_api_call:
     params: [symbol, cloud_run_base_url]

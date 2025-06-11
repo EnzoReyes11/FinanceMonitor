@@ -39,9 +39,9 @@ def bq_load_data(symbols_data):
                     {"error": "Invalid record structure.", "details": error_message}
                 ), 400
 
-            ticker, value, market, date_string = record
+            ticker, price, market, date_string = record
 
-            # Validate ticker (symbol[0])
+            # Validate ticker
             if not isinstance(ticker, str) or not ticker.strip():
                 error_message = f"Invalid ticker at index {i}: must be a non-empty string. Found: {ticker}"
                 logger.error(error_message)
@@ -49,22 +49,22 @@ def bq_load_data(symbols_data):
                     {"error": "Invalid data.", "details": error_message}
                 ), 400
 
-            # Validate value (symbol[1])
-            if not isinstance(value, (int, float)):
+            # Validate price
+            if not isinstance(price, (int, float)):
                 try:
-                    value = float(
-                        value
+                    price = float(
+                        price
                     )  # Try to convert if it's a string representation of a number
                 except (ValueError, TypeError):
                     error_message = (
-                        f"Invalid value at index {i}: must be a number. Found: {value}"
+                        f"Invalid value at index {i}: must be a number. Found: {price}"
                     )
                     logger.error(error_message)
                     return jsonify(
                         {"error": "Invalid data.", "details": error_message}
                     ), 400
 
-            # Validate market (symbol[2])
+            # Validate market
             if not isinstance(market, str) or not market.strip():
                 error_message = f"Invalid market at index {i}: must be a non-empty string. Found: {market}"
                 logger.error(error_message)
@@ -72,17 +72,17 @@ def bq_load_data(symbols_data):
                     {"error": "Invalid data.", "details": error_message}
                 ), 400
 
-            # Validate date_string (symbol[3])
+            # Validate date_string
             try:
-                datetime.strptime(date_string, "%Y-%m-%dT%H:%M:%S")
+                datetime.strptime(date_string, "%Y-%m-%d")
             except ValueError:
-                error_message = f"Invalid date format for record at index {i}: '{date_string}'. Expected 'YYYY-MM-DDTHH:MM:SS'."
+                error_message = f"Invalid date format for record at index {i}: '{date_string}'. Expected 'YYYY-MM-DD'."
                 logger.error(error_message)
                 return jsonify(
                     {"error": "Invalid date format.", "details": error_message}
                 ), 400
 
-            processed_rows.append([ticker, value, market, date_string])
+            processed_rows.append([ticker, price, market, date_string])
 
     except Exception:  # Catch any unexpected errors during processing
         logger.exception("An unexpected error occurred during symbol processing")

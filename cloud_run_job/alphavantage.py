@@ -67,10 +67,10 @@ def _get_symbol_latest(symbol):
         stock = None
         if latest_value:
             stock = {
-                "symbol": symbol,
+                "ticker": symbol,
                 "price": latest_value.get("4. close"),
                 "market": "US",
-                "date": latest_date + "T00:00:00",
+                "date": latest_date,
                 # Other possible values:
                 #                "values": {
                 #                    "open": latest_value.get("1. open"),
