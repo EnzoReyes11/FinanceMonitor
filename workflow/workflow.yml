@@ -1,15 +1,29 @@
+# Main workflow entry point.
+# This workflow orchestrates the process of fetching financial data from various sources
+# and loading it into BigQuery.
+#
+# The workflow is structured with independent branches for different markets (e.g., US, Argentina).
+# Each branch is responsible for:
+# 1. Querying a BigQuery table for a list of symbols for its market.
+# 2. Iterating through each symbol and calling the appropriate data source API (e.g., Alpha Vantage, IOL).
+# 3. Collecting all the new data points.
+# 4. Making a single batch call to a Cloud Function to write the data back to BigQuery.
+#
+# This modular design allows for easy addition of new branches to support more countries or data endpoints.
 main:
     steps:
         - init:
+              # Initialize variables from environment variables for use throughout the workflow.
               assign:
                   - cloud_run_base_url: ${sys.get_env("CLOUD_RUN_BASE_URL")}
                   - bq_project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
                   - bq_dataset_id: ${sys.get_env("BQ_DATASET")}
                   - bq_ar_table_id: ${sys.get_env("BQ_AR_TABLE_NAME")}
-                  - table_ar: '${bq_project_id + "." + bq_dataset_id + "." + bq_ar_table_id}'
+                  - table_ar: '${bq_project_id + "." + bq_dataset_id + "." + bq_ar_table_id}' # Argentinian market table (currently unused in this branch)
                   - bq_us_table_id: ${sys.get_env("BQ_US_TABLE_NAME")}
 
         - us_market_branch:
+              # This block contains the logic for processing symbols from the US market.
               steps:
                     - get_symbols:
                         call: query_database
@@ -19,6 +33,7 @@ main:
                         result: us_symbols
 
                     - get_new_values:
+                        # Switch based on whether the BigQuery query returned any symbols.
                         switch:
                             - condition: ${len(us_symbols) > 0}
                               steps:
@@ -26,6 +41,7 @@ main:
                                             assign:
                                                 - us_market_values: []
                                     - iterate_symbols:
+                                        # For each symbol returned, call the API to get its latest value.
                                         for:
                                             value: row
                                             in: ${us_symbols}
@@ -33,20 +49,24 @@ main:
                                                 - init_iterate_symbols:
                                                     assign:
                                                         - symbol: ${row.f[0].v}
+                                                # Call the Cloud Run service that fronts the Alpha Vantage API.
                                                 - call_function:
                                                     call: av_api_call
                                                     args:
                                                         symbol: ${symbol}
                                                         cloud_run_base_url: ${cloud_run_base_url}
                                                     result: av_response
+                                                # Format the API response and append it to the list of values to be written to BigQuery.
                                                 - prepare_next:
                                                       assign:
                                                           - new_value: ['${av_response.ticker}', '${av_response.price}', 'US', '${av_response.date}']
                                                           - us_market_values: ${list.concat(us_market_values, new_value)}
                                     
 
+                            # This is the default case if the condition above is false (no symbols found).
                             - condition: ${true}
                               steps:
+                                    # Log that no symbols were found to process.
                                     - log_no_av_symbols:
                                         call: sys.log
                                         args:
@@ -54,6 +74,7 @@ main:
                     - write_new_values:
                         call: http.post
                         args:
+                            # Call the Cloud Run service responsible for batch-loading data into BigQuery.
                             url: ${cloud_run_base_url + "/bq-batch-load"}
                             auth:
                                 type: OIDC
@@ -66,13 +87,16 @@ main:
                         result: av_response
                     
 
+# Sub-workflow to query a BigQuery table and return the rows.
 query_database:
     params: [full_table_name, bq_project_id]
     steps:
         - init:
+            # Construct the BigQuery REST API endpoint URL for running queries.
             assign:
                 - url: '${"https://bigquery.googleapis.com/bigquery/v2/projects/" + bq_project_id + "/queries"}'
         - runQuery:
+            # Execute the query using an authenticated POST request.
             call: http.post
             args:
                 url: ${url}
@@ -84,14 +108,17 @@ query_database:
                     query: '${"SELECT symbol FROM `"+full_table_name+"`"}'
             result: queryResult
         - done:
+              # Return only the rows from the API response.
               return: ${queryResult.body.rows}
 
+# Sub-workflow to call the Alpha Vantage API wrapper in Cloud Run for a single symbol.
 av_api_call:
     params: [symbol, cloud_run_base_url]
     steps:
         - call_api:
             try:
                 call: http.get
+                # Call the /alpha-vantage endpoint with the symbol as a query parameter.
                 args:
                     url: ${cloud_run_base_url + "/alpha-vantage" + "?symbol=" + symbol}
                     auth:
@@ -99,6 +126,7 @@ av_api_call:
                     timeout: 1800
                 result: av_response
             except:
+                # Handle potential errors during the HTTP call.
                 as: e
                 steps:
                     - log_av_cr_call_error:
@@ -106,6 +134,7 @@ av_api_call:
                         args:
                             text: '${"Error calling Alpha Vantage Cloud Run endpoint with symbol list: " + e.message + "; Response: " + json.encode_to_string(e)}'
                     - known_errors:
+                        # Route to different steps based on the HTTP error code.
                         switch:
                             - condition: ${not("HttpError" in e.tags)}
                               next: connection_problem
@@ -116,11 +145,13 @@ av_api_call:
                     - unhandled_exception:
                         raise: ${e}
 
+        # Log the successful response from the API call for debugging.
         - log_api_calls_response:
             call: sys.log
             args:
                   text: '${"AV Response: " + json.encode_to_string(av_response)}'
         - done:
+              # Return the body of the successful response.
               return: ${av_response.body}
         - connection_problem:
             return: "Connection problem; check URL"
