@@ -6,7 +6,7 @@ Function environment.
 
 It requires the following environment variables to be set:
 - ALPHA_VANTAGE_API_TOKEN: Your API key for Alpha Vantage.
-- ALPHA_VANTAGE_URL: The base URL for the Alpha Vantage API.
+- ALPHA_VANTAGE_API_URL: The base URL for the Alpha Vantage API.
 """
 import logging
 import os
@@ -25,7 +25,7 @@ logging.basicConfig(
 
 # --- Configuration ---
 ALPHA_VANTAGE_API_TOKEN = os.environ.get("ALPHA_VANTAGE_API_TOKEN")
-ALPHA_VANTAGE_URL = os.environ.get("ALPHA_VANTAGE_URL")
+ALPHA_VANTAGE_API_URL = os.environ.get("ALPHA_VANTAGE_API_URL")
 
 
 def _get_symbol_latest(symbol):
@@ -54,7 +54,7 @@ def _get_symbol_latest(symbol):
     try:
         logging.info("Retrieving latest information for symbol %s", symbol)
         response = requests.get(
-            ALPHA_VANTAGE_URL,
+            ALPHA_VANTAGE_API_URL,
             params={
                 "function": "TIME_SERIES_DAILY",
                 "symbol": symbol,
@@ -139,7 +139,7 @@ def alpha_vantage_handler(request):
         appropriate HTTP status code. Returns None if environment variables
         are not set.
     """
-    if not ALPHA_VANTAGE_API_TOKEN or not ALPHA_VANTAGE_URL:
+    if not ALPHA_VANTAGE_API_TOKEN or not ALPHA_VANTAGE_API_URL:
         logging.error(
             "FATAL: ALPHA_VANTAGE_API_TOKEN and ALPHA_VANTAGE_URL environment variables are not set."
         )
