@@ -71,6 +71,7 @@ def download_pdf(pdf_url):
 def parse_pdf(pdf_path):
     """
     Parses the PDF and extracts tables by parsing raw text.
+    This function uses pdfplumber, as it proved to be more reliable than camelot for this specific PDF structure.
     """
     data = {}
     try:
@@ -142,7 +143,6 @@ def parse_pdf(pdf_path):
         logging.error(f"Error parsing the PDF: {e}")
         return None
     finally:
-        # Clean up the temporary file
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
 
@@ -179,6 +179,56 @@ def get_report_data():
 
     logging.info("Successfully fetched and parsed the report.")
     return jsonify(data)
+
+@app.route('/test', methods=['GET'])
+def get_report_data_html():
+    """
+    Main endpoint to trigger the scraping process and return the data as HTML tables.
+    """
+    logging.info("Received request to fetch report data as HTML.")
+
+    # 1. Get the latest report URL
+    report_url = get_latest_report_url()
+    if not report_url:
+        return "<h1>Error: Failed to get the latest report URL.</h1>", 500
+
+    # 2. Get the PDF URL from the report page
+    pdf_url = get_pdf_url(report_url)
+    if not pdf_url:
+        return "<h1>Error: Failed to get the PDF URL.</h1>", 500
+
+    # 3. Download the PDF
+    pdf_path = download_pdf(pdf_url)
+    if not pdf_path:
+        return "<h1>Error: Failed to download the PDF.</h1>", 500
+
+    # 4. Parse the PDF and extract data
+    data = parse_pdf(pdf_path)
+    if not data:
+        return "<h1>Error: Failed to parse the PDF.</h1>", 500
+
+    # 5. Format data as HTML
+    html = "<html><head><title>IAMC Report</title></head><body>"
+    for title, table_data in data.items():
+        html += f"<h1>{title}</h1>"
+        if table_data:
+            html += "<table border='1'>"
+            # Headers
+            html += "<tr>"
+            for header in table_data[0].keys():
+                html += f"<th>{header}</th>"
+            html += "</tr>"
+            # Rows
+            for row in table_data:
+                html += "<tr>"
+                for value in row.values():
+                    html += f"<td>{value}</td>"
+                html += "</tr>"
+            html += "</table>"
+    html += "</body></html>"
+
+    logging.info("Successfully fetched and parsed the report, returning HTML.")
+    return html
 
 if __name__ == '__main__':
     # Get the port from the environment variable, default to 8080
