@@ -84,31 +84,71 @@ def download_pdf(pdf_url):
 
 def parse_pdf(pdf_path):
     """
-    Parses the PDF and extracts tables.
+    Parses the PDF and extracts tables by parsing raw text.
     """
     data = {}
     try:
         with pdfplumber.open(pdf_path) as pdf:
+            full_text = ""
             for page in pdf.pages:
-                # Extract text to find table titles
-                text = page.extract_text()
+                full_text += page.extract_text() + "\n"
 
-                # Use regex to find table titles
-                table_titles = re.findall(r'([A-Z\s]+)\s\(LECAPS?\)', text)
+            # Define table titles and their headers
+            table_definitions = {
+                "LETRAS DEL TESORO CAPITALIZABLES EN PESOS (LECAP)": [
+                    "Especie", "Fecha de Emisión", "Fecha de Pago", "Plazo al Vto (Días)", "Monto al Vto",
+                    "Tasa de licitación", "Fecha", "Cotiz c/ VN 100", "Rendimiento del Período", "TNA", "TEA", "TEM", "DM (días)"
+                ],
+                "BONOS DEL TESORO CAPITALIZABLES EN PESOS (BONCAP)": [
+                    "Especie", "Fecha de Emisión", "Fecha de Pago", "Plazo al Vto (Días)", "Monto al Vto",
+                    "Tasa de licitación", "Fecha", "Cotiz c/ VN 100", "Rendimiento del Período", "TNA", "TEA", "TEM", "DM (días)"
+                ],
+                "BONOS DUALES": [
+                    "bono", "Fecha de Emisión", "Fecha de Pago", "Monto al Vto", "Fecha",
+                    "Cotiz c/ VN 100", "TEM FIJA", "TEM TAMAR", "Spread", "TIR"
+                ]
+            }
 
-                # Extract tables
-                tables = page.extract_tables()
+            # Get the text content of the entire PDF
+            text_content = ""
+            with pdfplumber.open(pdf_path) as pdf:
+                for page in pdf.pages:
+                    text_content += page.extract_text()
 
-                for i, table in enumerate(tables):
-                    if i < len(table_titles):
-                        title = table_titles[i].strip()
-                        headers = table[0]
-                        table_data = []
-                        for row in table[1:]:
-                            table_data.append(dict(zip(headers, row)))
-                        data[title] = table_data
+            # Find all table titles in the text
+            lines = text_content.split('\n')
 
+            for title, headers in table_definitions.items():
+                table_data = []
+                in_table = False
+                for line in lines:
+                    if title in line:
+                        in_table = True
+                        continue
+
+                    if in_table:
+                        # Check if the line is the start of another table
+                        is_another_title = False
+                        for other_title in table_definitions:
+                            if other_title != title and other_title in line:
+                                is_another_title = True
+                                break
+                        if is_another_title:
+                            in_table = False
+                            break
+
+                        # A simple check for a data row
+                        if re.match(r'^[A-Z]{1,4}\d{1,2}[A-Z]\d{1,2}', line.split(' ')[0]):
+                            # This is a crude way to split the row, assuming space delimiters
+                            values = line.split()
+                            # This is a very fragile assumption about the number of columns
+                            if len(values) >= len(headers):
+                                table_data.append(dict(zip(headers, values)))
+
+                if table_data:
+                    data[title] = table_data
         return data
+
     except Exception as e:
         logging.error(f"Error parsing the PDF: {e}")
         return None
