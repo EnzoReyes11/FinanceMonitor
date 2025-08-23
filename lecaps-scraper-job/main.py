@@ -20,16 +20,10 @@ def get_latest_report_url():
     Fetches the main page and returns the URL of the latest report.
     """
     try:
-        # The website has SSL certificate issues, so we disable verification.
-        # In a production environment, a better approach would be to add the
-        # certificate to the trust store.
         response = requests.get(REPORTS_PAGE_URL, verify=False)
-        response.raise_for_status()  # Raise an exception for bad status codes
+        response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
-
-        # Find the first link in the list of reports
         report_link = soup.find('div', class_='contenidoListado Acceso-Rapido').find('a')
-
         if report_link and report_link.has_attr('href'):
             return f"{BASE_URL}{report_link['href']}"
         else:
@@ -44,14 +38,10 @@ def get_pdf_url(report_url):
     Fetches the report page and returns the URL of the PDF.
     """
     try:
-        # The website has SSL certificate issues, so we disable verification.
         response = requests.get(report_url, verify=False)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
-
-        # Find the PDF link
         pdf_link = soup.find('a', class_='pdfDownload')
-
         if pdf_link and pdf_link.has_attr('href'):
             return pdf_link['href']
         else:
@@ -66,16 +56,12 @@ def download_pdf(pdf_url):
     Downloads the PDF to a temporary file and returns the path.
     """
     try:
-        # The website has SSL certificate issues, so we disable verification.
         response = requests.get(pdf_url, verify=False, stream=True)
         response.raise_for_status()
-
-        # Create a temporary file to store the PDF
         pdf_path = "/tmp/report.pdf"
         with open(pdf_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
-
         logging.info(f"PDF downloaded successfully to {pdf_path}")
         return pdf_path
     except requests.exceptions.RequestException as e:
@@ -102,21 +88,10 @@ def parse_pdf(pdf_path):
                 "BONOS DEL TESORO CAPITALIZABLES EN PESOS (BONCAP)": [
                     "Especie", "Fecha de Emisión", "Fecha de Pago", "Plazo al Vto (Días)", "Monto al Vto",
                     "Tasa de licitación", "Fecha", "Cotiz c/ VN 100", "Rendimiento del Período", "TNA", "TEA", "TEM", "DM (días)"
-                ],
-                "BONOS DUALES": [
-                    "bono", "Fecha de Emisión", "Fecha de Pago", "Monto al Vto", "Fecha",
-                    "Cotiz c/ VN 100", "TEM FIJA", "TEM TAMAR", "Spread", "TIR"
                 ]
             }
 
-            # Get the text content of the entire PDF
-            text_content = ""
-            with pdfplumber.open(pdf_path) as pdf:
-                for page in pdf.pages:
-                    text_content += page.extract_text()
-
-            # Find all table titles in the text
-            lines = text_content.split('\n')
+            lines = full_text.split('\n')
 
             for title, headers in table_definitions.items():
                 table_data = []
@@ -127,7 +102,6 @@ def parse_pdf(pdf_path):
                         continue
 
                     if in_table:
-                        # Check if the line is the start of another table
                         is_another_title = False
                         for other_title in table_definitions:
                             if other_title != title and other_title in line:
@@ -137,16 +111,31 @@ def parse_pdf(pdf_path):
                             in_table = False
                             break
 
-                        # A simple check for a data row
                         if re.match(r'^[A-Z]{1,4}\d{1,2}[A-Z]\d{1,2}', line.split(' ')[0]):
-                            # This is a crude way to split the row, assuming space delimiters
                             values = line.split()
-                            # This is a very fragile assumption about the number of columns
                             if len(values) >= len(headers):
                                 table_data.append(dict(zip(headers, values)))
 
                 if table_data:
                     data[title] = table_data
+
+            # Special parsing for BONOS DUALES
+            bonos_duales_text_start = full_text.find("BONOS DUALES")
+            if bonos_duales_text_start != -1:
+                bonos_duales_text_end = full_text.find("2 - Índice Caución BYMA", bonos_duales_text_start)
+                if bonos_duales_text_end == -1:
+                    bonos_duales_text_end = len(full_text)
+
+                bonos_duales_text = full_text[bonos_duales_text_start:bonos_duales_text_end]
+                bonos_duales_data = []
+                for line in bonos_duales_text.split('\n'):
+                    # This regex is specific to the BONOS DUALES table format
+                    match = re.match(r'^(?P<bono>[A-Z]{1,4}\d{1,2}[A-Z]\d{1,2})\s+(?P<fecha_emision>\d{1,2}-[A-Za-z]{3}-\d{2,4})\s+(?P<fecha_pago>\d{1,2}-[A-Za-z]{3}-\d{2,4})\s+(?P<plazo_vto>\d+)\s+(?P<monto_vto>[\d,.]+)\s+(?P<fecha>\d{1,2}-[A-Za-z]{3}-\d{2,4})\s+(?P<cotiz>[\d,.]+)\s+(?P<tem_fija>[\d.,]+%)\s+(?P<tem_tamar>[\d.,]+%)\s+(?P<spread>[\d.,]+%)\s+(?P<tir>[\d.,]+%)\s+(?P<dm>\d+)$', line)
+                    if match:
+                        bonos_duales_data.append(match.groupdict())
+                if bonos_duales_data:
+                    data["BONOS DUALES"] = bonos_duales_data
+
         return data
 
     except Exception as e:
