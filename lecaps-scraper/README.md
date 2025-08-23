@@ -5,13 +5,14 @@ This is a Python script that scrapes the latest financial report from the IAMC w
 ## Prerequisites
 
 - [Docker](https://www.docker.com/get-started) must be installed on your local machine.
+- [Terraform](https://www.terraform.io/downloads.html) (for setting up alerting).
 
 ## Building the Docker Image
 
-First, navigate to the `lecaps-scraper-job` directory:
+First, navigate to the `lecaps-scraper` directory:
 
 ```sh
-cd lecaps-scraper-job
+cd lecaps-scraper
 ```
 
 Then, to build the Docker image, run the following command:
@@ -63,9 +64,9 @@ To deploy this container to Google Cloud Run, you can use the Google Cloud SDK (
     ```
 
 3.  **Build and push the image to Google Container Registry (GCR)**:
-    Replace `[PROJECT-ID]` with your Google Cloud project ID. First, navigate to the `lecaps-scraper-job` directory:
+    Replace `[PROJECT-ID]` with your Google Cloud project ID. First, navigate to the `lecaps-scraper` directory:
     ```sh
-    cd lecaps-scraper-job
+    cd lecaps-scraper
     ```
     Then, build and push the image:
     ```sh
@@ -76,7 +77,7 @@ To deploy this container to Google Cloud Run, you can use the Google Cloud SDK (
 4.  **Deploy the image to Cloud Run**:
     Replace `[PROJECT-ID]` with your Google Cloud project ID and `[REGION]` with your desired region (e.g., `us-central1`).
     ```sh
-    gcloud run deploy lecap-scraper \
+    gcloud run deploy lecaps-scraper \
       --image gcr.io/[PROJECT-ID]/lecap-scraper \
       --platform managed \
       --region [REGION] \
@@ -84,3 +85,40 @@ To deploy this container to Google Cloud Run, you can use the Google Cloud SDK (
     ```
 
 After deployment, Cloud Run will provide you with a URL to access your service.
+
+## GCP Alerting with Terraform
+
+This project includes a Terraform script to set up a log-based alert in your GCP project. This alert will monitor the logs from the `lecaps-scraper` Cloud Run service and notify you via email if any errors are detected.
+
+### Prerequisites
+
+- [Terraform](https://www.terraform.io/downloads.html) is installed.
+- You have authenticated with GCP and have the necessary permissions to create monitoring resources.
+
+### Setup
+
+1.  **Navigate to the `lecaps-scraper` directory:**
+    ```sh
+    cd lecaps-scraper
+    ```
+
+2.  **Create a `terraform.tfvars` file** with the following content, replacing the placeholder values with your own:
+    ```
+    project_id         = "your-gcp-project-id"
+    notification_email = "your-email@example.com"
+    ```
+
+3.  **Initialize Terraform:**
+    ```sh
+    terraform init
+    ```
+
+4.  **Apply the Terraform configuration:**
+    ```sh
+    terraform apply
+    ```
+
+This will create the following resources in your GCP project:
+- A log-based metric to count errors from the `lecaps-scraper` service.
+- An email notification channel.
+- A monitoring alert policy that triggers when errors are detected.

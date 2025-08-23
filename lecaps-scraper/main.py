@@ -8,8 +8,12 @@ import re
 from google.cloud import bigquery
 from datetime import datetime
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+from google.cloud import logging as cloud_logging
+
+# Instantiates a client
+logging_client = cloud_logging.Client()
+handler = logging_client.get_default_handler()
+logging.getLogger().addHandler(handler)
 
 # --- Configuration ---
 BASE_URL = "https://www.iamc.com.ar"
