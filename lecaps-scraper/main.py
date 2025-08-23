@@ -5,6 +5,8 @@ import pdfplumber
 from flask import Flask, jsonify, request
 import logging
 import re
+from google.cloud import bigquery
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -146,6 +148,89 @@ def parse_pdf(pdf_path):
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
 
+def store_in_bigquery(data, dry_run=False):
+    """
+    Stores the parsed data in BigQuery.
+    If dry_run is True, it will print the data instead of inserting it.
+    """
+    if dry_run:
+        print("--- BigQuery Dry Run ---")
+        print(data)
+        return
+
+    try:
+        client = bigquery.Client()
+
+        # Get table IDs from environment variables
+        project_id = os.getenv("BQ_PROJECT_ID")
+        dataset_id = "financeTools"
+        fixed_income_table_id = f"{project_id}.{dataset_id}.byma_tresuries_fixed_income"
+        daily_values_table_id = f"{project_id}.{dataset_id}.byma_treasuries_fixed_income_daily_values"
+
+        # Process LECAPS and BONCAPS
+        for table_name, table_data in data.items():
+            if "LECAP" in table_name or "BONCAP" in table_name:
+                for row in table_data:
+                    # Transform data
+                    ticker_symbol = row.get("Especie")
+                    issue_date = datetime.strptime(row.get("Fecha de Emisión"), "%d-%b-%y").strftime("%Y-%m-%d")
+                    payment_date = datetime.strptime(row.get("Fecha de Pago"), "%d-%b-%y").strftime("%Y-%m-%d")
+                    amount_at_payment = float(row.get("Monto al Vto").replace(",", "."))
+                    rate = float(row.get("Tasa de licitación").replace("%", "").replace(",", "."))
+
+                    # Insert into byma_tresuries_fixed_income if not exists
+                    query = f"SELECT asset_key FROM `{fixed_income_table_id}` WHERE ticker_symbol = @ticker"
+                    query_params = [bigquery.ScalarQueryParameter("ticker", "STRING", ticker_symbol)]
+                    job_config = bigquery.QueryJobConfig(query_parameters=query_params)
+                    query_job = client.query(query, job_config=job_config)
+                    results = query_job.result()
+
+                    asset_key = None
+                    if results.total_rows == 0:
+                        # Get the next asset_key
+                        query = f"SELECT MAX(asset_key) as max_key FROM `{fixed_income_table_id}`"
+                        query_job = client.query(query)
+                        max_key_result = list(query_job.result())
+                        max_key = max_key_result[0].max_key if max_key_result and max_key_result[0].max_key else 0
+                        asset_key = max_key + 1
+
+                        # Insert new asset
+                        insert_rows = [{"asset_key": asset_key, "ticker_symbol": ticker_symbol, "issue_date": issue_date, "payment_date": payment_date, "amount_at_payment": amount_at_payment, "rate": rate}]
+                        errors = client.insert_rows_json(fixed_income_table_id, insert_rows)
+                        if errors:
+                            logging.error(f"Error inserting row into {fixed_income_table_id}: {errors}")
+                    else:
+                        asset_key = list(results)[0].asset_key
+
+                    # Insert into byma_treasuries_fixed_income_daily_values
+                    snapshot_date = datetime.strptime(row.get("Fecha"), "%d-%b-%y").strftime("%Y-%m-%d")
+                    snapshot_timestamp = datetime.utcnow().isoformat()
+                    ingestion_date = snapshot_timestamp
+
+                    daily_row = {
+                        "asset_key": asset_key,
+                        "ticker_symbol": ticker_symbol,
+                        "snapshot_date": snapshot_date,
+                        "snapshot_timestamp": snapshot_timestamp,
+                        "ingestion_date": ingestion_date,
+                        "maturity_value": amount_at_payment,
+                        "action_rate": rate,
+                        "price_per_100_nominal_value": float(row.get("Cotiz c/ VN 100").replace(",", ".")),
+                        "period_yield": float(row.get("Rendimiento del Período").replace("%", "").replace(",", ".")),
+                        "annual_percentage_rate": float(row.get("TNA").replace("%", "").replace(",", ".")),
+                        "effective_annual_rate": row.get("TEA"),
+                        "effective_monthly_rate": row.get("TEM"),
+                        "modified_duration_in_days": row.get("DM (días)")
+                    }
+                    errors = client.insert_rows_json(daily_values_table_id, [daily_row])
+                    if errors:
+                        logging.error(f"Error inserting row into {daily_values_table_id}: {errors}")
+
+        logging.info("Data successfully stored in BigQuery.")
+
+    except Exception as e:
+        logging.error(f"Error storing data in BigQuery: {e}")
+
 # --- Flask App ---
 
 app = Flask(__name__)
@@ -176,6 +261,10 @@ def get_report_data():
     data = parse_pdf(pdf_path)
     if not data:
         return jsonify({"error": "Failed to parse the PDF."}), 500
+
+    # 5. Store data in BigQuery
+    dry_run = request.args.get('dry_run', 'false').lower() == 'true'
+    store_in_bigquery(data, dry_run=dry_run)
 
     logging.info("Successfully fetched and parsed the report.")
     return jsonify(data)
