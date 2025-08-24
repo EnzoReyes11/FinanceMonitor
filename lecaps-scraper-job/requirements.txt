@@ -3,4 +3,3 @@ beautifulsoup4
 Flask
 pdfplumber
 google-cloud-bigquery
-google-cloud-logging

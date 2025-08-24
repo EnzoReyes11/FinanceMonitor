@@ -6,14 +6,10 @@ from flask import Flask, jsonify, request
 import logging
 import re
 from google.cloud import bigquery
-from datetime import datetime
+from datetime import datetime, timezone
 
-from google.cloud import logging as cloud_logging
-
-# Instantiates a client
-logging_client = cloud_logging.Client()
-handler = logging_client.get_default_handler()
-logging.getLogger().addHandler(handler)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 # --- Configuration ---
 BASE_URL = "https://www.iamc.com.ar"
@@ -154,83 +150,78 @@ def parse_pdf(pdf_path):
 
 def store_in_bigquery(data, dry_run=False):
     """
-    Stores the parsed data in BigQuery.
-    If dry_run is True, it will print the data instead of inserting it.
+    Stores the parsed data in BigQuery using MERGE and INSERT statements.
     """
-    if dry_run:
-        print("--- BigQuery Dry Run ---")
-        print(data)
-        return
-
     try:
-        client = bigquery.Client()
+        if dry_run:
+            print("--- BigQuery Dry Run ---")
+            # In dry run mode, we just print the queries that would be executed.
+            # We don't need a BigQuery client.
+            # The actual queries will be printed inside the loop.
+        else:
+            client = bigquery.Client()
 
-        # Get table IDs from environment variables
         project_id = os.getenv("BQ_PROJECT_ID")
         dataset_id = "financeTools"
         fixed_income_table_id = f"{project_id}.{dataset_id}.byma_tresuries_fixed_income"
         daily_values_table_id = f"{project_id}.{dataset_id}.byma_treasuries_fixed_income_daily_values"
 
-        # Process LECAPS and BONCAPS
         for table_name, table_data in data.items():
             if "LECAP" in table_name or "BONCAP" in table_name:
                 for row in table_data:
-                    # Transform data
                     ticker_symbol = row.get("Especie")
-                    issue_date = datetime.strptime(row.get("Fecha de Emisión"), "%d-%b-%y").strftime("%Y-%m-%d")
-                    payment_date = datetime.strptime(row.get("Fecha de Pago"), "%d-%b-%y").strftime("%Y-%m-%d")
-                    amount_at_payment = float(row.get("Monto al Vto").replace(",", "."))
-                    rate = float(row.get("Tasa de licitación").replace("%", "").replace(",", "."))
 
-                    # Insert into byma_tresuries_fixed_income if not exists
-                    query = f"SELECT asset_key FROM `{fixed_income_table_id}` WHERE ticker_symbol = @ticker"
-                    query_params = [bigquery.ScalarQueryParameter("ticker", "STRING", ticker_symbol)]
-                    job_config = bigquery.QueryJobConfig(query_parameters=query_params)
-                    query_job = client.query(query, job_config=job_config)
-                    results = query_job.result()
-
-                    asset_key = None
-                    if results.total_rows == 0:
-                        # Get the next asset_key
-                        query = f"SELECT MAX(asset_key) as max_key FROM `{fixed_income_table_id}`"
-                        query_job = client.query(query)
-                        max_key_result = list(query_job.result())
-                        max_key = max_key_result[0].max_key if max_key_result and max_key_result[0].max_key else 0
-                        asset_key = max_key + 1
-
-                        # Insert new asset
-                        insert_rows = [{"asset_key": asset_key, "ticker_symbol": ticker_symbol, "issue_date": issue_date, "payment_date": payment_date, "amount_at_payment": amount_at_payment, "rate": rate}]
-                        errors = client.insert_rows_json(fixed_income_table_id, insert_rows)
-                        if errors:
-                            logging.error(f"Error inserting row into {fixed_income_table_id}: {errors}")
+                    # MERGE into byma_tresuries_fixed_income
+                    merge_query = f"""
+                    MERGE `{fixed_income_table_id}` T
+                    USING (SELECT @ticker_symbol as ticker_symbol, @issue_date as issue_date, @payment_date as payment_date, @amount_at_payment as amount_at_payment, @rate as rate) S
+                    ON T.asset_key = FARM_FINGERPRINT(CONCAT(S.ticker_symbol, '|', 'byma'))
+                    WHEN NOT MATCHED THEN
+                      INSERT (asset_key, ticker_symbol, issue_date, payment_date, amount_at_payment, rate)
+                      VALUES(FARM_FINGERPRINT(CONCAT(S.ticker_symbol, '|', 'byma')), S.ticker_symbol, PARSE_DATE('%Y-%m-%d', S.issue_date), PARSE_DATE('%Y-%m-%d', S.payment_date), S.amount_at_payment, S.rate)
+                    """
+                    query_params = [
+                        bigquery.ScalarQueryParameter("ticker_symbol", "STRING", ticker_symbol),
+                        bigquery.ScalarQueryParameter("issue_date", "STRING", datetime.strptime(row.get("Fecha de Emisión"), "%d-%b-%y").strftime("%Y-%m-%d")),
+                        bigquery.ScalarQueryParameter("payment_date", "STRING", datetime.strptime(row.get("Fecha de Pago"), "%d-%b-%y").strftime("%Y-%m-%d")),
+                        bigquery.ScalarQueryParameter("amount_at_payment", "NUMERIC", float(row.get("Monto al Vto").replace(",", "."))),
+                        bigquery.ScalarQueryParameter("rate", "NUMERIC", float(row.get("Tasa de licitación").replace("%", "").replace(",", "."))),
+                    ]
+                    if dry_run:
+                        print(merge_query)
+                        print(query_params)
                     else:
-                        asset_key = list(results)[0].asset_key
+                        job_config = bigquery.QueryJobConfig(query_parameters=query_params)
+                        client.query(merge_query, job_config=job_config).result()
 
-                    # Insert into byma_treasuries_fixed_income_daily_values
-                    snapshot_date = datetime.strptime(row.get("Fecha"), "%d-%b-%y").strftime("%Y-%m-%d")
-                    snapshot_timestamp = datetime.utcnow().isoformat()
-                    ingestion_date = snapshot_timestamp
+                    # INSERT into byma_treasuries_fixed_income_daily_values
+                    insert_query = f"""
+                    INSERT INTO `{daily_values_table_id}` (asset_key, ticker_symbol, snapshot_date, snapshot_timestamp, ingestion_date, maturity_value, action_rate, price_per_100_nominal_value, period_yield, annual_percentage_rate, effective_annual_rate, effective_monthly_rate, modified_duration_in_days)
+                    VALUES(FARM_FINGERPRINT(CONCAT(@ticker_symbol, '|', 'byma')), @ticker_symbol, PARSE_DATE('%Y-%m-%d', @snapshot_date), @snapshot_timestamp, @ingestion_date, @maturity_value, @action_rate, @price_per_100_nominal_value, @period_yield, @annual_percentage_rate, @effective_annual_rate, @effective_monthly_rate, @modified_duration_in_days)
+                    """
+                    query_params = [
+                        bigquery.ScalarQueryParameter("ticker_symbol", "STRING", ticker_symbol),
+                        bigquery.ScalarQueryParameter("snapshot_date", "STRING", datetime.strptime(row.get("Fecha"), "%d-%b-%y").strftime("%Y-%m-%d")),
+                        bigquery.ScalarQueryParameter("snapshot_timestamp", "TIMESTAMP", datetime.now(timezone.utc).isoformat()),
+                        bigquery.ScalarQueryParameter("ingestion_date", "TIMESTAMP", datetime.now(timezone.utc).isoformat()),
+                        bigquery.ScalarQueryParameter("maturity_value", "NUMERIC", float(row.get("Monto al Vto").replace(",", "."))),
+                        bigquery.ScalarQueryParameter("action_rate", "NUMERIC", float(row.get("Tasa de licitación").replace("%", "").replace(",", "."))),
+                        bigquery.ScalarQueryParameter("price_per_100_nominal_value", "NUMERIC", float(row.get("Cotiz c/ VN 100").replace(",", "."))),
+                        bigquery.ScalarQueryParameter("period_yield", "NUMERIC", float(row.get("Rendimiento del Período").replace("%", "").replace(",", "."))),
+                        bigquery.ScalarQueryParameter("annual_percentage_rate", "NUMERIC", float(row.get("TNA").replace("%", "").replace(",", "."))),
+                        bigquery.ScalarQueryParameter("effective_annual_rate", "STRING", row.get("TEA")),
+                        bigquery.ScalarQueryParameter("effective_monthly_rate", "STRING", row.get("TEM")),
+                        bigquery.ScalarQueryParameter("modified_duration_in_days", "STRING", row.get("DM (días)"))
+                    ]
+                    if dry_run:
+                        print(insert_query)
+                        print(query_params)
+                    else:
+                        job_config = bigquery.QueryJobConfig(query_parameters=query_params)
+                        client.query(insert_query, job_config=job_config).result()
 
-                    daily_row = {
-                        "asset_key": asset_key,
-                        "ticker_symbol": ticker_symbol,
-                        "snapshot_date": snapshot_date,
-                        "snapshot_timestamp": snapshot_timestamp,
-                        "ingestion_date": ingestion_date,
-                        "maturity_value": amount_at_payment,
-                        "action_rate": rate,
-                        "price_per_100_nominal_value": float(row.get("Cotiz c/ VN 100").replace(",", ".")),
-                        "period_yield": float(row.get("Rendimiento del Período").replace("%", "").replace(",", ".")),
-                        "annual_percentage_rate": float(row.get("TNA").replace("%", "").replace(",", ".")),
-                        "effective_annual_rate": row.get("TEA"),
-                        "effective_monthly_rate": row.get("TEM"),
-                        "modified_duration_in_days": row.get("DM (días)")
-                    }
-                    errors = client.insert_rows_json(daily_values_table_id, [daily_row])
-                    if errors:
-                        logging.error(f"Error inserting row into {daily_values_table_id}: {errors}")
-
-        logging.info("Data successfully stored in BigQuery.")
+        if not dry_run:
+            logging.info("Data successfully stored in BigQuery.")
 
     except Exception as e:
         logging.error(f"Error storing data in BigQuery: {e}")
@@ -268,6 +259,7 @@ def get_report_data():
 
     # 5. Store data in BigQuery
     dry_run = request.args.get('dry_run', 'false').lower() == 'true'
+    logging.info(f"Calling store_in_bigquery with dry_run={dry_run}")
     store_in_bigquery(data, dry_run=dry_run)
 
     logging.info("Successfully fetched and parsed the report.")
