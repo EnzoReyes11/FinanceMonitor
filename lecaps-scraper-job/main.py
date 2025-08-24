@@ -1,12 +1,16 @@
+import logging
 import os
+import re
+from datetime import datetime, timezone
+
+import pdfplumber
 import requests
 from bs4 import BeautifulSoup
-import pdfplumber
+from dotenv import load_dotenv
 from flask import Flask, jsonify, request
-import logging
-import re
 from google.cloud import bigquery
-from datetime import datetime, timezone
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -163,22 +167,23 @@ def store_in_bigquery(data, dry_run=False):
 
         project_id = os.getenv("BQ_PROJECT_ID")
         dataset_id = "financeTools"
-        fixed_income_table_id = f"{project_id}.{dataset_id}.byma_tresuries_fixed_income"
+        fixed_income_table_id = f"{project_id}.{dataset_id}.byma_treasuries_fixed_income"
         daily_values_table_id = f"{project_id}.{dataset_id}.byma_treasuries_fixed_income_daily_values"
 
         for table_name, table_data in data.items():
             if "LECAP" in table_name or "BONCAP" in table_name:
                 for row in table_data:
                     ticker_symbol = row.get("Especie")
+                    type = "BONCAP" if "BONCAP" in table_name else "LECAP"
 
                     # MERGE into byma_tresuries_fixed_income
                     merge_query = f"""
                     MERGE `{fixed_income_table_id}` T
-                    USING (SELECT @ticker_symbol as ticker_symbol, @issue_date as issue_date, @payment_date as payment_date, @amount_at_payment as amount_at_payment, @rate as rate) S
+                    USING (SELECT @ticker_symbol as ticker_symbol, @issue_date as issue_date, @payment_date as payment_date, @amount_at_payment as amount_at_payment, @rate as rate, @type as type) S
                     ON T.asset_key = FARM_FINGERPRINT(CONCAT(S.ticker_symbol, '|', 'byma'))
                     WHEN NOT MATCHED THEN
-                      INSERT (asset_key, ticker_symbol, issue_date, payment_date, amount_at_payment, rate)
-                      VALUES(FARM_FINGERPRINT(CONCAT(S.ticker_symbol, '|', 'byma')), S.ticker_symbol, PARSE_DATE('%Y-%m-%d', S.issue_date), PARSE_DATE('%Y-%m-%d', S.payment_date), S.amount_at_payment, S.rate)
+                      INSERT (asset_key, ticker_symbol, issue_date, payment_date, amount_at_payment, rate, type) 
+                      VALUES(FARM_FINGERPRINT(CONCAT(S.ticker_symbol, '|', 'byma')), S.ticker_symbol, PARSE_DATE('%Y-%m-%d', S.issue_date), PARSE_DATE('%Y-%m-%d', S.payment_date), S.amount_at_payment, S.rate, S.type)
                     """
                     query_params = [
                         bigquery.ScalarQueryParameter("ticker_symbol", "STRING", ticker_symbol),
@@ -186,7 +191,9 @@ def store_in_bigquery(data, dry_run=False):
                         bigquery.ScalarQueryParameter("payment_date", "STRING", datetime.strptime(row.get("Fecha de Pago"), "%d-%b-%y").strftime("%Y-%m-%d")),
                         bigquery.ScalarQueryParameter("amount_at_payment", "NUMERIC", float(row.get("Monto al Vto").replace(",", "."))),
                         bigquery.ScalarQueryParameter("rate", "NUMERIC", float(row.get("Tasa de licitación").replace("%", "").replace(",", "."))),
+                        bigquery.ScalarQueryParameter("type", "STRING", type)
                     ]
+
                     if dry_run:
                         print(merge_query)
                         print(query_params)
@@ -209,9 +216,9 @@ def store_in_bigquery(data, dry_run=False):
                         bigquery.ScalarQueryParameter("price_per_100_nominal_value", "NUMERIC", float(row.get("Cotiz c/ VN 100").replace(",", "."))),
                         bigquery.ScalarQueryParameter("period_yield", "NUMERIC", float(row.get("Rendimiento del Período").replace("%", "").replace(",", "."))),
                         bigquery.ScalarQueryParameter("annual_percentage_rate", "NUMERIC", float(row.get("TNA").replace("%", "").replace(",", "."))),
-                        bigquery.ScalarQueryParameter("effective_annual_rate", "STRING", row.get("TEA")),
-                        bigquery.ScalarQueryParameter("effective_monthly_rate", "STRING", row.get("TEM")),
-                        bigquery.ScalarQueryParameter("modified_duration_in_days", "STRING", row.get("DM (días)"))
+                        bigquery.ScalarQueryParameter("effective_annual_rate", "NUMERIC", float(row.get("TEA").replace("%", "").replace(",", "."))),
+                        bigquery.ScalarQueryParameter("effective_monthly_rate", "NUMERIC", float(row.get("TEM").replace("%", "").replace(",", "."))),
+                        bigquery.ScalarQueryParameter("modified_duration_in_days", "NUMERIC", float(row.get("DM (días)")))
                     ]
                     if dry_run:
                         print(insert_query)
