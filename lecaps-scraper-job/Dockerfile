@@ -13,10 +13,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the content of the local src directory to the working directory
 COPY main.py .
+COPY .env .
 
 # Make port 8080 available to the world outside this container
 # Google Cloud Run will set this env var automatically
-ENV PORT 8080
+ENV PORT=8080
 
 # Run the application
 CMD ["python", "main.py"]
