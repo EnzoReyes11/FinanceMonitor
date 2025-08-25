@@ -9,16 +9,16 @@ This is a Python script that scrapes the latest financial report from the IAMC w
 
 ## Building the Docker Image
 
-First, navigate to the `lecaps-scraper` directory:
+First, navigate to the `lecaps-scraper-job` directory:
 
 ```sh
-cd lecaps-scraper
+cd lecaps-scraper-job
 ```
 
 Then, to build the Docker image, run the following command:
 
 ```sh
-docker build -t lecap-scraper .
+docker build -t lecap-scraper-local:latest .
 ```
 
 ## Running the Docker Container
@@ -26,7 +26,7 @@ docker build -t lecap-scraper .
 To run the Docker container locally, use the following command:
 
 ```sh
-docker run -p 8080:8080 lecap-scraper
+docker run --env-file=.env -p 8080:8080 lecap-scraper-local
 ```
 
 This will start the Flask application on port 8080 inside the container and map it to port 8080 on your host machine.
@@ -66,7 +66,7 @@ To deploy this container to Google Cloud Run, you can use the Google Cloud SDK (
 3.  **Build and push the image to Google Container Registry (GCR)**:
     Replace `[PROJECT-ID]` with your Google Cloud project ID. First, navigate to the `lecaps-scraper` directory:
     ```sh
-    cd lecaps-scraper
+    cd lecaps-scraper-job
     ```
     Then, build and push the image:
     ```sh
@@ -81,7 +81,6 @@ To deploy this container to Google Cloud Run, you can use the Google Cloud SDK (
       --image gcr.io/[PROJECT-ID]/lecap-scraper \
       --platform managed \
       --region [REGION] \
-      --allow-unauthenticated
     ```
 
 After deployment, Cloud Run will provide you with a URL to access your service.
