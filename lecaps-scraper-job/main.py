@@ -126,6 +126,8 @@ def parse_pdf(pdf_path):
                             values = line.split()
                             if len(values) >= len(headers):
                                 table_data.append(dict(zip(headers, values)))
+                            else:
+                                logging.warning(f"Skipping row with insufficient values: {line}")
 
                 if table_data:
                     data[title] = table_data
@@ -178,7 +180,7 @@ def transform_data(parsed_data):
         if "LECAP" in table_name or "BONCAP" in table_name:
             instrument_type = "BONCAP" if "BONCAP" in table_name else "LECAP"
             for row in table_data:
-                logging.info(row)
+                logging.debug(row)
                 fixed_income_rows.append({
                     "ticker_symbol": row.get("ticker_symbol"),
                     "issue_date": str(datetime.strptime(row.get("fecha_emision"), "%d-%b-%y").date()),
@@ -207,6 +209,48 @@ def transform_data(parsed_data):
 
     return fixed_income_rows, daily_values_rows
 
+
+def _load_and_transform(client, project_id, dataset_id, rows, schema, transform_query):
+    """Helper function to load data to a temp table and run a transform query."""
+    if not rows:
+        return
+
+    temp_table_name = f"temp_source_{uuid.uuid4().hex}"
+    temp_table_id = f"{project_id}.{dataset_id}.{temp_table_name}"
+
+    job_config = bigquery.LoadJobConfig(
+        schema=schema,
+        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON
+    )
+
+    try:
+        # Load data into the temporary table
+        logging.info(f"Loading {len(rows)} rows into temporary table {temp_table_id}")
+        load_job = client.load_table_from_json(rows, temp_table_id, job_config=job_config)
+        load_job.result()
+
+        # Set an expiration on the temp table for auto-cleanup
+        temp_table = client.get_table(temp_table_id)
+        temp_table.expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        client.update_table(temp_table, ["expires"])
+
+        # Execute the main transform query (MERGE or INSERT)
+        final_query = transform_query.format(temp_table_id=temp_table_id)
+        logging.info("Executing transform query...")
+        query_job = client.query(final_query)
+        query_job.result()
+        logging.info("Transform query completed successfully.")
+
+    except Exception as e:
+        logging.error(f"Error during BigQuery load/transform process: {e}")
+        logging.info(final_query)
+        raise 
+    finally:
+        logging.info(f"Deleting temporary table {temp_table_id}")
+        client.delete_table(temp_table_id, not_found_ok=True)
+
+
+
 def load_data_to_bigquery(fixed_income_rows, daily_values_rows, dry_run=False):
     """
     Loads transformed data into BigQuery tables using a temporary table for the MERGE operation.
@@ -227,82 +271,46 @@ def load_data_to_bigquery(fixed_income_rows, daily_values_rows, dry_run=False):
         logging.info("--- BigQuery Dry Run ---")
         if fixed_income_rows:
             logging.info(f"Would MERGE {len(fixed_income_rows)} rows into {fixed_income_table_id}")
-        # ... (dry run for daily values remains the same) ...
+        if daily_values_rows:
+            logging.info(f"Would INSERT {len(daily_values_rows)} rows into {daily_values_table_id}")
         return
 
     client = bigquery.Client()
-    job_config = bigquery.LoadJobConfig()
 
     # --- Load Fixed Income Data using a Temporary Table ---
     if fixed_income_rows:
-        temp_table_name = f"temp_merge_source_{uuid.uuid4().hex}"
-        temp_table_id = f"{project_id}.{dataset_id}.{temp_table_name}"
-
-                # STEP 2: Define the schema for the *sanitized* data being loaded
-        job_config = bigquery.LoadJobConfig()
-        job_config.schema = [
-            # Note: asset_key is no longer here
+        fixed_income_schema = [
             bigquery.SchemaField("ticker_symbol", "STRING"),
-            bigquery.SchemaField("issue_date", "STRING"), # Sending as string
-            bigquery.SchemaField("payment_date", "STRING"),# Sending as string
-            bigquery.SchemaField("amount_at_payment", "STRING"),# Sending as string
-            bigquery.SchemaField("rate", "STRING"), # Sending as string
+            bigquery.SchemaField("issue_date", "STRING"),
+            bigquery.SchemaField("payment_date", "STRING"),
+            bigquery.SchemaField("amount_at_payment", "STRING"),
+            bigquery.SchemaField("rate", "STRING"),
             bigquery.SchemaField("type", "STRING"),
         ]
-        job_config.source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON
 
-        try:
-            # Load the sanitized data into the temporary table
-            logging.info(f"Loading {len(fixed_income_rows)} rows into temporary table {temp_table_id}")
-            load_job = client.load_table_from_json(
-                fixed_income_rows, temp_table_id, job_config=job_config
-            )
-            load_job.result()
-
-            # Set an expiration on the temp table
-            temp_table = client.get_table(temp_table_id)
-            temp_table.expires = datetime.now(timezone.utc) + timedelta(hours=1)
-            client.update_table(temp_table, ["expires"])
-
-            # STEP 3: Execute the MERGE statement, generating asset_key in SQL
-            logging.info(f"Merging from temporary table into {fixed_income_table_id}")
-            merge_query = f"""
-            MERGE `{fixed_income_table_id}` T
-            USING `{temp_table_id}` S
-            ON T.asset_key = FARM_FINGERPRINT(S.ticker_symbol || '|byma')
-            WHEN NOT MATCHED THEN
-              INSERT (asset_key, ticker_symbol, issue_date, payment_date, amount_at_payment, rate, type)
-              VALUES(
-                FARM_FINGERPRINT(S.ticker_symbol || '|byma'),
-                S.ticker_symbol,
-                CAST(S.issue_date AS DATE),
-                CAST(S.payment_date AS DATE),
-                CAST(S.amount_at_payment AS NUMERIC),
-                CAST(S.rate AS NUMERIC),
-                S.type
-              );
+        merge_query = f"""
+                MERGE `{fixed_income_table_id}` T
+                USING `{{temp_table_id}}` S
+                ON T.asset_key = FARM_FINGERPRINT(S.ticker_symbol || '|byma')
+                WHEN NOT MATCHED THEN
+                  INSERT (asset_key, ticker_symbol, issue_date, payment_date, amount_at_payment, rate, type)
+                  VALUES(
+                    FARM_FINGERPRINT(S.ticker_symbol || '|byma'),
+                    S.ticker_symbol,
+                    CAST(S.issue_date AS DATE),
+                    CAST(S.payment_date AS DATE),
+                    CAST(S.amount_at_payment AS NUMERIC),
+                    CAST(S.rate AS NUMERIC),
+                    S.type
+                  );
             """
-            merge_job = client.query(merge_query)
-            merge_job.result()
 
-            logging.info("Successfully merged fixed income data.")
-
-        except Exception as e:
-            logging.error(f"Error during the merge process: {e}")
-        finally:
-            # Clean up the temporary table
-            logging.info(f"Deleting temporary table {temp_table_id}")
-            client.delete_table(temp_table_id, not_found_ok=True)
+        _load_and_transform(client, project_id, dataset_id, fixed_income_rows, fixed_income_schema, merge_query)
 
 
-    # --- Load Daily Values Data ---
+        # --- Load Daily Values Data ---
         if daily_values_rows:
-            temp_daily_table_name = f"temp_daily_source_{uuid.uuid4().hex}"
-            temp_daily_table_id = f"{project_id}.{dataset_id}.{temp_daily_table_name}"
-
-            # Define the schema for the sanitized daily values data
-            daily_job_config = bigquery.LoadJobConfig()
-            daily_job_config.schema = [
+            daily_values_schema = [
                 bigquery.SchemaField("ticker_symbol", "STRING"),
                 bigquery.SchemaField("snapshot_date", "STRING"),
                 bigquery.SchemaField("ingestion_timestamp", "STRING"),
@@ -315,30 +323,13 @@ def load_data_to_bigquery(fixed_income_rows, daily_values_rows, dry_run=False):
                 bigquery.SchemaField("effective_monthly_rate", "STRING"),
                 bigquery.SchemaField("modified_duration_in_days", "INTEGER"),
             ]
-            daily_job_config.source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON
 
-            try:
-                # Load sanitized data into the daily temporary table
-                logging.info(f"Loading {len(daily_values_rows)} rows into temporary table {temp_daily_table_id}")
-                load_job = client.load_table_from_json(
-                    daily_values_rows, temp_daily_table_id, job_config=daily_job_config
-                )
-                load_job.result()
-
-                # Set expiration
-                temp_table = client.get_table(temp_daily_table_id)
-                temp_table.expires = datetime.now(timezone.utc) + timedelta(hours=1)
-                client.update_table(temp_table, ["expires"])
-
-                # Execute an INSERT INTO ... SELECT statement
-                logging.info(f"Inserting from temporary table into {daily_values_table_id}")
-                insert_query = f"""
+            insert_query = f"""
                 INSERT INTO `{daily_values_table_id}` (
                     asset_key, ticker_symbol, snapshot_date, ingestion_timestamp,
                     maturity_value, action_rate, price_per_100_nominal_value, period_yield,
                     annual_percentage_rate, effective_annual_rate, effective_monthly_rate,
-                    modified_duration_in_days
-                )
+                    modified_duration_in_days)
                 SELECT
                     FARM_FINGERPRINT(S.ticker_symbol || '|byma') AS asset_key,
                     S.ticker_symbol,
@@ -352,18 +343,10 @@ def load_data_to_bigquery(fixed_income_rows, daily_values_rows, dry_run=False):
                     CAST(S.effective_annual_rate AS NUMERIC) AS effective_annual_rate,
                     CAST(S.effective_monthly_rate AS NUMERIC) AS effective_monthly_rate,
                     S.modified_duration_in_days
-                FROM `{temp_daily_table_id}` S
-                """
-                insert_job = client.query(insert_query)
-                insert_job.result()
+                FROM `{{temp_table_id}}` S
+            """
+            _load_and_transform(client, project_id, dataset_id, daily_values_rows, daily_values_schema, insert_query)
 
-                logging.info("Successfully inserted daily values data.")
-            except Exception as e:
-                logging.error(f"Error inserting daily values data: {e}")
-            finally:
-                # Clean up the temporary table
-                logging.info(f"Deleting temporary table {temp_daily_table_id}")
-                client.delete_table(temp_daily_table_id, not_found_ok=True)
 
 def main(dry_run=False):
     """
