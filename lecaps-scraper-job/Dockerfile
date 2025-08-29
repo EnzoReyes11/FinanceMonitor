@@ -24,3 +24,4 @@ RUN useradd -m appuser
 USER appuser
 
 CMD ["gunicorn", "--workers", "2", "--threads", "4", "main:app"]
+
