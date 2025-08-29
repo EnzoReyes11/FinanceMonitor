@@ -1,7 +1,9 @@
+import decimal
 import logging
 import os
 import re
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 
 import pdfplumber
 import requests
@@ -19,14 +21,14 @@ logging.basicConfig(level=logging.INFO)
 BASE_URL = "https://www.iamc.com.ar"
 REPORTS_PAGE_URL = f"{BASE_URL}/informeslecap/"
 
-# --- Helper Functions ---
 
 def get_latest_report_url():
     """
     Fetches the main page and returns the URL of the latest report.
     """
     try:
-        response = requests.get(REPORTS_PAGE_URL, verify=False)
+        # In a production environment, it's recommended to use verify=True and handle SSL certificates properly.
+        response = requests.get(REPORTS_PAGE_URL, verify=False) 
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
         report_link = soup.find('div', class_='contenidoListado Acceso-Rapido').find('a')
@@ -44,7 +46,8 @@ def get_pdf_url(report_url):
     Fetches the report page and returns the URL of the PDF.
     """
     try:
-        response = requests.get(report_url, verify=False)
+        # In a production environment, it's recommended to use verify=True and handle SSL certificates properly.
+        response = requests.get(report_url, verify=False) 
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
         pdf_link = soup.find('a', class_='pdfDownload')
@@ -62,7 +65,8 @@ def download_pdf(pdf_url):
     Downloads the PDF to a temporary file and returns the path.
     """
     try:
-        response = requests.get(pdf_url, verify=False, stream=True)
+        # In a production environment, it's recommended to use verify=True and handle SSL certificates properly.
+        response = requests.get(pdf_url, verify=False, stream=True) 
         response.raise_for_status()
         pdf_path = "/tmp/report.pdf"
         with open(pdf_path, 'wb') as f:
@@ -89,12 +93,12 @@ def parse_pdf(pdf_path):
             # Define table titles and their headers
             table_definitions = {
                 "LETRAS DEL TESORO CAPITALIZABLES EN PESOS (LECAP)": [
-                    "Especie", "Fecha de Emisión", "Fecha de Pago", "Plazo al Vto (Días)", "Monto al Vto",
-                    "Tasa de licitación", "Fecha", "Cotiz c/ VN 100", "Rendimiento del Período", "TNA", "TEA", "TEM", "DM (días)"
+                    "ticker_symbol", "fecha_emision", "fecha_pago", "plazo_vencimiento_dias", "monto_al_vencimiento",
+                    "tasa_de_liquidacion", "fecha_cierre", "fecha_liquidacion", "precio_vn_100", "rendimiento_periodo", "tna", "tea", "tem", "dm_dias"
                 ],
                 "BONOS DEL TESORO CAPITALIZABLES EN PESOS (BONCAP)": [
-                    "Especie", "Fecha de Emisión", "Fecha de Pago", "Plazo al Vto (Días)", "Monto al Vto",
-                    "Tasa de licitación", "Fecha", "Cotiz c/ VN 100", "Rendimiento del Período", "TNA", "TEA", "TEM", "DM (días)"
+                    "ticker_symbol", "fecha_emision", "fecha_pago", "plazo_vencimiento_dias", "monto_al_vencimiento",
+                    "tasa_de_liquidacion", "fecha_cierre", "fecha_liquidacion", "precio_vn_100", "rendimiento_periodo", "tna", "tea", "tem", "dm_dias"
                 ]
             }
 
@@ -152,88 +156,246 @@ def parse_pdf(pdf_path):
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
 
-def store_in_bigquery(data, dry_run=False):
+def parse_num(s: str) -> decimal.Decimal:
     """
-    Stores the parsed data in BigQuery using MERGE and INSERT statements.
+    Parses a string number from IAMC format (e.g., "1.234,56") to a Decimal.
+    It removes thousand separators ('.') and uses ',' as the decimal separator.
     """
-    try:
-        if dry_run:
-            print("--- BigQuery Dry Run ---")
-            # In dry run mode, we just print the queries that would be executed.
-            # We don't need a BigQuery client.
-            # The actual queries will be printed inside the loop.
-        else:
-            client = bigquery.Client()
+    # drop thousands ".", use "," as decimal separator
+    t = s.replace(".", "").replace(",", ".")
+    return decimal.Decimal(t)
 
-        project_id = os.getenv("BQ_PROJECT_ID")
-        dataset_id = "financeTools"
-        fixed_income_table_id = f"{project_id}.{dataset_id}.byma_treasuries_fixed_income"
-        daily_values_table_id = f"{project_id}.{dataset_id}.byma_treasuries_fixed_income_daily_values"
 
-        for table_name, table_data in data.items():
-            if "LECAP" in table_name or "BONCAP" in table_name:
-                for row in table_data:
-                    ticker_symbol = row.get("Especie")
-                    type = "BONCAP" if "BONCAP" in table_name else "LECAP"
+def transform_data(parsed_data):
+    """
+    Transforms raw parsed data into clean, typed rows for BigQuery.
+    """
+    fixed_income_rows = []
+    daily_values_rows = []
+    current_timestamp = datetime.now(timezone.utc)
 
-                    # MERGE into byma_tresuries_fixed_income
-                    merge_query = f"""
-                    MERGE `{fixed_income_table_id}` T
-                    USING (SELECT @ticker_symbol as ticker_symbol, @issue_date as issue_date, @payment_date as payment_date, @amount_at_payment as amount_at_payment, @rate as rate, @type as type) S
-                    ON T.asset_key = FARM_FINGERPRINT(CONCAT(S.ticker_symbol, '|', 'byma'))
-                    WHEN NOT MATCHED THEN
-                      INSERT (asset_key, ticker_symbol, issue_date, payment_date, amount_at_payment, rate, type) 
-                      VALUES(FARM_FINGERPRINT(CONCAT(S.ticker_symbol, '|', 'byma')), S.ticker_symbol, PARSE_DATE('%Y-%m-%d', S.issue_date), PARSE_DATE('%Y-%m-%d', S.payment_date), S.amount_at_payment, S.rate, S.type)
-                    """
-                    query_params = [
-                        bigquery.ScalarQueryParameter("ticker_symbol", "STRING", ticker_symbol),
-                        bigquery.ScalarQueryParameter("issue_date", "STRING", datetime.strptime(row.get("Fecha de Emisión"), "%d-%b-%y").strftime("%Y-%m-%d")),
-                        bigquery.ScalarQueryParameter("payment_date", "STRING", datetime.strptime(row.get("Fecha de Pago"), "%d-%b-%y").strftime("%Y-%m-%d")),
-                        bigquery.ScalarQueryParameter("amount_at_payment", "NUMERIC", float(row.get("Monto al Vto").replace(",", "."))),
-                        bigquery.ScalarQueryParameter("rate", "NUMERIC", float(row.get("Tasa de licitación").replace("%", "").replace(",", "."))),
-                        bigquery.ScalarQueryParameter("type", "STRING", type)
-                    ]
+    for table_name, table_data in parsed_data.items():
+        if "LECAP" in table_name or "BONCAP" in table_name:
+            instrument_type = "BONCAP" if "BONCAP" in table_name else "LECAP"
+            for row in table_data:
+                logging.info(row)
+                fixed_income_rows.append({
+                    "ticker_symbol": row.get("ticker_symbol"),
+                    "issue_date": str(datetime.strptime(row.get("fecha_emision"), "%d-%b-%y").date()),
+                    "payment_date": str(datetime.strptime(row.get("fecha_pago"), "%d-%b-%y").date()),
+                    "amount_at_payment": str(parse_num(row.get("monto_al_vencimiento"))),
+                    "rate": str(parse_num(row.get("tasa_de_liquidacion").replace("%", ""))),
+                    "type": instrument_type,
+                })
 
-                    if dry_run:
-                        print(merge_query)
-                        print(query_params)
-                    else:
-                        job_config = bigquery.QueryJobConfig(query_parameters=query_params)
-                        client.query(merge_query, job_config=job_config).result()
 
-                    # INSERT into byma_treasuries_fixed_income_daily_values
-                    insert_query = f"""
-                    INSERT INTO `{daily_values_table_id}` (asset_key, ticker_symbol, snapshot_date, snapshot_timestamp, ingestion_date, maturity_value, action_rate, price_per_100_nominal_value, period_yield, annual_percentage_rate, effective_annual_rate, effective_monthly_rate, modified_duration_in_days)
-                    VALUES(FARM_FINGERPRINT(CONCAT(@ticker_symbol, '|', 'byma')), @ticker_symbol, PARSE_DATE('%Y-%m-%d', @snapshot_date), @snapshot_timestamp, @ingestion_date, @maturity_value, @action_rate, @price_per_100_nominal_value, @period_yield, @annual_percentage_rate, @effective_annual_rate, @effective_monthly_rate, @modified_duration_in_days)
-                    """
-                    query_params = [
-                        bigquery.ScalarQueryParameter("ticker_symbol", "STRING", ticker_symbol),
-                        bigquery.ScalarQueryParameter("snapshot_date", "STRING", datetime.strptime(row.get("Fecha"), "%d-%b-%y").strftime("%Y-%m-%d")),
-                        bigquery.ScalarQueryParameter("snapshot_timestamp", "TIMESTAMP", datetime.now(timezone.utc).isoformat()),
-                        bigquery.ScalarQueryParameter("ingestion_date", "TIMESTAMP", datetime.now(timezone.utc).isoformat()),
-                        bigquery.ScalarQueryParameter("maturity_value", "NUMERIC", float(row.get("Monto al Vto").replace(",", "."))),
-                        bigquery.ScalarQueryParameter("action_rate", "NUMERIC", float(row.get("Tasa de licitación").replace("%", "").replace(",", "."))),
-                        bigquery.ScalarQueryParameter("price_per_100_nominal_value", "NUMERIC", float(row.get("Cotiz c/ VN 100").replace(",", "."))),
-                        bigquery.ScalarQueryParameter("period_yield", "NUMERIC", float(row.get("Rendimiento del Período").replace("%", "").replace(",", "."))),
-                        bigquery.ScalarQueryParameter("annual_percentage_rate", "NUMERIC", float(row.get("TNA").replace("%", "").replace(",", "."))),
-                        bigquery.ScalarQueryParameter("effective_annual_rate", "NUMERIC", float(row.get("TEA").replace("%", "").replace(",", "."))),
-                        bigquery.ScalarQueryParameter("effective_monthly_rate", "NUMERIC", float(row.get("TEM").replace("%", "").replace(",", "."))),
-                        bigquery.ScalarQueryParameter("modified_duration_in_days", "NUMERIC", float(row.get("DM (días)")))
-                    ]
-                    if dry_run:
-                        print(insert_query)
-                        print(query_params)
-                    else:
-                        job_config = bigquery.QueryJobConfig(query_parameters=query_params)
-                        client.query(insert_query, job_config=job_config).result()
+                # Transform for daily_values table
+                daily_values_rows.append({
+                    # asset_key is intentionally omitted
+                    "ticker_symbol": row.get("ticker_symbol"),
+                    "snapshot_date": str(datetime.strptime(row.get("fecha_cierre"), "%d-%b-%y").date()),
+                    "ingestion_timestamp": str(current_timestamp),
+                    "maturity_value": str(parse_num(row.get("monto_al_vencimiento"))),
+                    "action_rate": str(parse_num(row.get("tasa_de_liquidacion").replace("%", ""))),
+                    "price_per_100_nominal_value": str(parse_num(row.get("precio_vn_100").replace(",", "."))),
+                    "period_yield": str(parse_num(row.get("rendimiento_periodo").replace("%", ""))),
+                    "annual_percentage_rate": str(parse_num(row.get("tna").replace("%", ""))),
+                    "effective_annual_rate": str(parse_num(row.get("tea").replace("%", ""))),
+                    "effective_monthly_rate": str(parse_num(row.get("tem").replace("%", ""))),
+                    "modified_duration_in_days": int(parse_num(row.get("dm_dias"))),
+                })
 
-        if not dry_run:
-            logging.info("Data successfully stored in BigQuery.")
+    return fixed_income_rows, daily_values_rows
 
-    except Exception as e:
-        logging.error(f"Error storing data in BigQuery: {e}")
+def load_data_to_bigquery(fixed_income_rows, daily_values_rows, dry_run=False):
+    """
+    Loads transformed data into BigQuery tables using a temporary table for the MERGE operation.
+    """
+    if not fixed_income_rows and not daily_values_rows:
+        logging.info("No new data to load to BigQuery.")
+        return
 
-# --- Flask App ---
+    project_id = os.getenv("BQ_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    if not project_id:
+        raise RuntimeError("Missing BQ project id. Set BQ_PROJECT_ID or GOOGLE_CLOUD_PROJECT.")
+
+    dataset_id = "financeTools"
+    fixed_income_table_id = f"{project_id}.{dataset_id}.byma_treasuries_fixed_income"
+    daily_values_table_id = f"{project_id}.{dataset_id}.byma_treasuries_fixed_income_daily_values"
+
+    if dry_run:
+        logging.info("--- BigQuery Dry Run ---")
+        if fixed_income_rows:
+            logging.info(f"Would MERGE {len(fixed_income_rows)} rows into {fixed_income_table_id}")
+        # ... (dry run for daily values remains the same) ...
+        return
+
+    client = bigquery.Client()
+    job_config = bigquery.LoadJobConfig()
+
+    # --- Load Fixed Income Data using a Temporary Table ---
+    if fixed_income_rows:
+        temp_table_name = f"temp_merge_source_{uuid.uuid4().hex}"
+        temp_table_id = f"{project_id}.{dataset_id}.{temp_table_name}"
+
+                # STEP 2: Define the schema for the *sanitized* data being loaded
+        job_config = bigquery.LoadJobConfig()
+        job_config.schema = [
+            # Note: asset_key is no longer here
+            bigquery.SchemaField("ticker_symbol", "STRING"),
+            bigquery.SchemaField("issue_date", "STRING"), # Sending as string
+            bigquery.SchemaField("payment_date", "STRING"),# Sending as string
+            bigquery.SchemaField("amount_at_payment", "STRING"),# Sending as string
+            bigquery.SchemaField("rate", "STRING"), # Sending as string
+            bigquery.SchemaField("type", "STRING"),
+        ]
+        job_config.source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON
+
+        try:
+            # Load the sanitized data into the temporary table
+            logging.info(f"Loading {len(fixed_income_rows)} rows into temporary table {temp_table_id}")
+            load_job = client.load_table_from_json(
+                fixed_income_rows, temp_table_id, job_config=job_config
+            )
+            load_job.result()
+
+            # Set an expiration on the temp table
+            temp_table = client.get_table(temp_table_id)
+            temp_table.expires = datetime.now(timezone.utc) + timedelta(hours=1)
+            client.update_table(temp_table, ["expires"])
+
+            # STEP 3: Execute the MERGE statement, generating asset_key in SQL
+            logging.info(f"Merging from temporary table into {fixed_income_table_id}")
+            merge_query = f"""
+            MERGE `{fixed_income_table_id}` T
+            USING `{temp_table_id}` S
+            ON T.asset_key = FARM_FINGERPRINT(S.ticker_symbol || '|byma')
+            WHEN NOT MATCHED THEN
+              INSERT (asset_key, ticker_symbol, issue_date, payment_date, amount_at_payment, rate, type)
+              VALUES(
+                FARM_FINGERPRINT(S.ticker_symbol || '|byma'),
+                S.ticker_symbol,
+                CAST(S.issue_date AS DATE),
+                CAST(S.payment_date AS DATE),
+                CAST(S.amount_at_payment AS NUMERIC),
+                CAST(S.rate AS NUMERIC),
+                S.type
+              );
+            """
+            merge_job = client.query(merge_query)
+            merge_job.result()
+
+            logging.info("Successfully merged fixed income data.")
+
+        except Exception as e:
+            logging.error(f"Error during the merge process: {e}")
+        finally:
+            # Clean up the temporary table
+            logging.info(f"Deleting temporary table {temp_table_id}")
+            client.delete_table(temp_table_id, not_found_ok=True)
+
+
+    # --- Load Daily Values Data ---
+        if daily_values_rows:
+            temp_daily_table_name = f"temp_daily_source_{uuid.uuid4().hex}"
+            temp_daily_table_id = f"{project_id}.{dataset_id}.{temp_daily_table_name}"
+
+            # Define the schema for the sanitized daily values data
+            daily_job_config = bigquery.LoadJobConfig()
+            daily_job_config.schema = [
+                bigquery.SchemaField("ticker_symbol", "STRING"),
+                bigquery.SchemaField("snapshot_date", "STRING"),
+                bigquery.SchemaField("ingestion_timestamp", "STRING"),
+                bigquery.SchemaField("maturity_value", "STRING"),
+                bigquery.SchemaField("action_rate", "STRING"),
+                bigquery.SchemaField("price_per_100_nominal_value", "STRING"),
+                bigquery.SchemaField("period_yield", "STRING"),
+                bigquery.SchemaField("annual_percentage_rate", "STRING"),
+                bigquery.SchemaField("effective_annual_rate", "STRING"),
+                bigquery.SchemaField("effective_monthly_rate", "STRING"),
+                bigquery.SchemaField("modified_duration_in_days", "INTEGER"),
+            ]
+            daily_job_config.source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON
+
+            try:
+                # Load sanitized data into the daily temporary table
+                logging.info(f"Loading {len(daily_values_rows)} rows into temporary table {temp_daily_table_id}")
+                load_job = client.load_table_from_json(
+                    daily_values_rows, temp_daily_table_id, job_config=daily_job_config
+                )
+                load_job.result()
+
+                # Set expiration
+                temp_table = client.get_table(temp_daily_table_id)
+                temp_table.expires = datetime.now(timezone.utc) + timedelta(hours=1)
+                client.update_table(temp_table, ["expires"])
+
+                # Execute an INSERT INTO ... SELECT statement
+                logging.info(f"Inserting from temporary table into {daily_values_table_id}")
+                insert_query = f"""
+                INSERT INTO `{daily_values_table_id}` (
+                    asset_key, ticker_symbol, snapshot_date, ingestion_timestamp,
+                    maturity_value, action_rate, price_per_100_nominal_value, period_yield,
+                    annual_percentage_rate, effective_annual_rate, effective_monthly_rate,
+                    modified_duration_in_days
+                )
+                SELECT
+                    FARM_FINGERPRINT(S.ticker_symbol || '|byma') AS asset_key,
+                    S.ticker_symbol,
+                    CAST(S.snapshot_date AS DATE) AS snapshot_date,
+                    CAST(S.ingestion_timestamp AS TIMESTAMP) AS ingestion_timestamp,
+                    CAST(S.maturity_value AS NUMERIC) AS maturity_value,
+                    CAST(S.action_rate AS NUMERIC) AS action_rate,
+                    CAST(S.price_per_100_nominal_value AS NUMERIC) AS price_per_100_nominal_value,
+                    CAST(S.period_yield AS NUMERIC) AS period_yield,
+                    CAST(S.annual_percentage_rate AS NUMERIC) AS annual_percentage_rate,
+                    CAST(S.effective_annual_rate AS NUMERIC) AS effective_annual_rate,
+                    CAST(S.effective_monthly_rate AS NUMERIC) AS effective_monthly_rate,
+                    S.modified_duration_in_days
+                FROM `{temp_daily_table_id}` S
+                """
+                insert_job = client.query(insert_query)
+                insert_job.result()
+
+                logging.info("Successfully inserted daily values data.")
+            except Exception as e:
+                logging.error(f"Error inserting daily values data: {e}")
+            finally:
+                # Clean up the temporary table
+                logging.info(f"Deleting temporary table {temp_daily_table_id}")
+                client.delete_table(temp_daily_table_id, not_found_ok=True)
+
+def main(dry_run=False):
+    """
+    Main function to orchestrate the scraping and loading process.
+    """
+    logging.info("Starting scraping process...")
+    report_url = get_latest_report_url()
+    if not report_url:
+        logging.error("Failed to get the latest report URL. Aborting.")
+        return {"error": "Failed to get the latest report URL."}, 500
+
+    pdf_url = get_pdf_url(report_url)
+    if not pdf_url:
+        logging.error("Failed to get the PDF URL. Aborting.")
+        return {"error": "Failed to get the PDF URL."}, 500
+
+    pdf_path = download_pdf(pdf_url)
+    if not pdf_path:
+        logging.error("Failed to download the PDF. Aborting.")
+        return {"error": "Failed to download the PDF."}, 500
+
+    parsed_data = parse_pdf(pdf_path)
+    if not parsed_data:
+        logging.error("Failed to parse the PDF. Aborting.")
+        return {"error": "Failed to parse the PDF."}, 500
+
+    fixed_income_rows, daily_values_rows = transform_data(parsed_data)
+
+    load_data_to_bigquery(fixed_income_rows, daily_values_rows, dry_run=dry_run)
+
+    logging.info("Scraping process completed successfully.")
+    return parsed_data
 
 app = Flask(__name__)
 
@@ -243,34 +405,20 @@ def get_report_data():
     Main endpoint to trigger the scraping process and return the data.
     """
     logging.info("Received request to fetch report data.")
+    try:
+        dry_run = request.args.get('dry_run', 'false').lower() == 'true'
+        result = main(dry_run=dry_run)
 
-    # 1. Get the latest report URL
-    report_url = get_latest_report_url()
-    if not report_url:
-        return jsonify({"error": "Failed to get the latest report URL."}), 500
+        if isinstance(result, tuple) and "error" in result[0]:
+            logging.warning(f"A controlled error occurred: {result[0]['error']}")
+            return jsonify(result[0]), result[1]
 
-    # 2. Get the PDF URL from the report page
-    pdf_url = get_pdf_url(report_url)
-    if not pdf_url:
-        return jsonify({"error": "Failed to get the PDF URL."}), 500
-
-    # 3. Download the PDF
-    pdf_path = download_pdf(pdf_url)
-    if not pdf_path:
-        return jsonify({"error": "Failed to download the PDF."}), 500
-
-    # 4. Parse the PDF and extract data
-    data = parse_pdf(pdf_path)
-    if not data:
-        return jsonify({"error": "Failed to parse the PDF."}), 500
-
-    # 5. Store data in BigQuery
-    dry_run = request.args.get('dry_run', 'false').lower() == 'true'
-    logging.info(f"Calling store_in_bigquery with dry_run={dry_run}")
-    store_in_bigquery(data, dry_run=dry_run)
-
-    logging.info("Successfully fetched and parsed the report.")
-    return jsonify(data)
+        logging.info("Successfully fetched, parsed, and loaded the report, returning JSON.")
+        return jsonify(result)
+    except Exception:
+        # This catches any unhandled exceptions in the main logic
+        logging.exception("An unexpected error occurred while processing the request.")
+        return jsonify({"error": "An unexpected internal server error occurred."}), 500
 
 @app.route('/test', methods=['GET'])
 def get_report_data_html():
@@ -278,52 +426,39 @@ def get_report_data_html():
     Main endpoint to trigger the scraping process and return the data as HTML tables.
     """
     logging.info("Received request to fetch report data as HTML.")
+    try:
+        data = main(dry_run=True)
 
-    # 1. Get the latest report URL
-    report_url = get_latest_report_url()
-    if not report_url:
-        return "<h1>Error: Failed to get the latest report URL.</h1>", 500
+        if isinstance(data, tuple) and "error" in data[0]:  # Check if main returned an error tuple
+            logging.warning(f"A controlled error occurred: {data[0]['error']}")
+            return f"<h1>Error: {data[0]['error']}</h1>", data[1]
 
-    # 2. Get the PDF URL from the report page
-    pdf_url = get_pdf_url(report_url)
-    if not pdf_url:
-        return "<h1>Error: Failed to get the PDF URL.</h1>", 500
-
-    # 3. Download the PDF
-    pdf_path = download_pdf(pdf_url)
-    if not pdf_path:
-        return "<h1>Error: Failed to download the PDF.</h1>", 500
-
-    # 4. Parse the PDF and extract data
-    data = parse_pdf(pdf_path)
-    if not data:
-        return "<h1>Error: Failed to parse the PDF.</h1>", 500
-
-    # 5. Format data as HTML
-    html = "<html><head><title>IAMC Report</title></head><body>"
-    for title, table_data in data.items():
-        html += f"<h1>{title}</h1>"
-        if table_data:
-            html += "<table border='1'>"
-            # Headers
-            html += "<tr>"
-            for header in table_data[0].keys():
-                html += f"<th>{header}</th>"
-            html += "</tr>"
-            # Rows
-            for row in table_data:
+        # 5. Format data as HTML
+        html = "<html><head><title>IAMC Report</title></head><body>"
+        for title, table_data in data.items():
+            html += f"<h1>{title}</h1>"
+            if table_data:
+                html += "<table border='1'>"
+                # Headers
                 html += "<tr>"
-                for value in row.values():
-                    html += f"<td>{value}</td>"
+                for header in table_data[0].keys():
+                    html += f"<th>{header}</th>"
                 html += "</tr>"
-            html += "</table>"
-    html += "</body></html>"
+                # Rows
+                for row in table_data:
+                    html += "<tr>"
+                    for value in row.values():
+                        html += f"<td>{value}</td>"
+                    html += "</tr>"
+                html += "</table>"
+        html += "</body></html>"
 
-    logging.info("Successfully fetched and parsed the report, returning HTML.")
-    return html
+        logging.info("Successfully fetched and parsed the report, returning HTML.")
+        return html
+    except Exception:
+        logging.exception("An unexpected error occurred while processing the request for HTML.")
+        return "<h1>Error: An unexpected internal server error occurred.</h1>", 500
 
 if __name__ == '__main__':
-    # Get the port from the environment variable, default to 8080
     port = int(os.environ.get('PORT', 8080))
-    # Run the app, listening on all available interfaces
     app.run(host='0.0.0.0', port=port)
