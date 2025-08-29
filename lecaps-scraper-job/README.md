@@ -18,7 +18,7 @@ cd lecaps-scraper-job
 Then, to build the Docker image, run the following command:
 
 ```sh
-docker build -t lecap-scraper-local:latest .
+docker build -t lecaps-scraper-local:latest .
 ```
 
 ## Running the Docker Container
@@ -26,7 +26,7 @@ docker build -t lecap-scraper-local:latest .
 To run the Docker container locally, use the following command:
 
 ```sh
-docker run --env-file=.env -p 8080:8080 lecap-scraper-local
+docker run --env-file=.env -p 8080:8080 lecaps-scraper-local
 ```
 
 This will start the Flask application on port 8080 inside the container and map it to port 8080 on your host machine.
@@ -66,11 +66,12 @@ To deploy this container to Google Cloud Run, you can use the Google Cloud SDK (
 3.  **Build and push the image to Google Container Registry (GCR)**:
     Replace `[PROJECT-ID]` with your Google Cloud project ID. First, navigate to the `lecaps-scraper` directory:
     ```sh
-    cd lecaps-scraper-job
+    cd lecaps-scraper-job-job-job
     ```
     Then, build and push the image:
     ```sh
-    docker build -t gcr.io/[PROJECT-ID]/lecap-scraper .
+    docker build -t gcr.io/[PROJECT-ID]/lecaps-scraper .
+    docker push gcr.io/[PROJECT-ID]/lecaps-scraper
     docker push gcr.io/[PROJECT-ID]/lecap-scraper
     ```
 
@@ -78,7 +79,8 @@ To deploy this container to Google Cloud Run, you can use the Google Cloud SDK (
     Replace `[PROJECT-ID]` with your Google Cloud project ID and `[REGION]` with your desired region (e.g., `us-central1`).
     ```sh
     gcloud run deploy lecaps-scraper \
-      --image gcr.io/[PROJECT-ID]/lecap-scraper \
+     gcloud run deploy lecaps-scraper \
+      --image gcr.io/[PROJECT-ID]/lecaps-scraper \
       --platform managed \
       --region [REGION] \
     ```
@@ -96,9 +98,9 @@ This project includes a Terraform script to set up a log-based alert in your GCP
 
 ### Setup
 
-1.  **Navigate to the `lecaps-scraper` directory:**
+1.  **Navigate to the `lecaps-scraper-job` directory:**
     ```sh
-    cd lecaps-scraper
+    cd lecaps-scraper-job
     ```
 
 2.  **Create a `terraform.tfvars` file** with the following content, replacing the placeholder values with your own:
@@ -121,3 +123,4 @@ This will create the following resources in your GCP project:
 - A log-based metric to count errors from the `lecaps-scraper` service.
 - An email notification channel.
 - A monitoring alert policy that triggers when errors are detected.
+
