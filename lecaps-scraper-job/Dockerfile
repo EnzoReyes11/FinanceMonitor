@@ -17,6 +17,10 @@ COPY main.py .
 # Make port 8080 available to the world outside this container
 # Google Cloud Run will set this env var automatically
 ENV PORT=8080
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# Run the application
-CMD ["python", "main.py"]
+RUN useradd -m appuser
+USER appuser
+
+CMD ["gunicorn", "--workers", "2", "--threads", "4", "main:app"]
