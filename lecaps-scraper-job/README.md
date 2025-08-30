@@ -55,6 +55,7 @@ To deploy this container to Google Cloud Run, you can use the Google Cloud SDK (
     ```sh
     gcloud services enable run.googleapis.com
     gcloud services enable containerregistry.googleapis.com
+    gcloud services enable bigquery.googleapis.com
     ```
 
 2.  **Authenticate with Google Cloud**:
@@ -66,20 +67,18 @@ To deploy this container to Google Cloud Run, you can use the Google Cloud SDK (
 3.  **Build and push the image to Google Container Registry (GCR)**:
     Replace `[PROJECT-ID]` with your Google Cloud project ID. First, navigate to the `lecaps-scraper` directory:
     ```sh
-    cd lecaps-scraper-job-job-job
+    cd lecaps-scraper-job
     ```
     Then, build and push the image:
     ```sh
     docker build -t gcr.io/[PROJECT-ID]/lecaps-scraper .
     docker push gcr.io/[PROJECT-ID]/lecaps-scraper
-    docker push gcr.io/[PROJECT-ID]/lecap-scraper
     ```
 
 4.  **Deploy the image to Cloud Run**:
     Replace `[PROJECT-ID]` with your Google Cloud project ID and `[REGION]` with your desired region (e.g., `us-central1`).
     ```sh
     gcloud run deploy lecaps-scraper \
-     gcloud run deploy lecaps-scraper \
       --image gcr.io/[PROJECT-ID]/lecaps-scraper \
       --platform managed \
       --region [REGION] \

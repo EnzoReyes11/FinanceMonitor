@@ -1,15 +1,32 @@
 import logging
 import os
 
+import google.cloud.logging
 from dotenv import load_dotenv
 from etl import extractor, loader, transformer
 from flask import Flask, jsonify, request
 
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+LOG_LEVELS = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL,
+}
 
+log_level_name = os.environ.get('LOG_LEVEL', 'INFO').upper()
+log_level = LOG_LEVELS.get(log_level_name, logging.INFO)
+
+if os.environ.get('K_SERVICE') is not None:
+    client = google.cloud.logging.Client()
+    client.setup_logging(log_level=log_level)
+else:
+    logging.basicConfig(level=log_level)
+
+
+logging.info(f"Logger initialized with level: {log_level_name}")
 
 def main(dry_run=False):
     """
@@ -63,7 +80,6 @@ def get_report_data():
         logging.info("Successfully fetched, parsed, and loaded the report, returning JSON.")
         return jsonify(result)
     except Exception:
-        # This catches any unhandled exceptions in the main logic
         logging.exception("An unexpected error occurred while processing the request.")
         return jsonify({"error": "An unexpected internal server error occurred."}), 500
 
@@ -76,11 +92,10 @@ def get_report_data_html():
     try:
         data = main(dry_run=True)
 
-        if isinstance(data, tuple) and "error" in data[0]:  # Check if main returned an error tuple
+        if isinstance(data, tuple) and "error" in data[0]: 
             logging.warning(f"A controlled error occurred: {data[0]['error']}")
             return f"<h1>Error: {data[0]['error']}</h1>", data[1]
 
-        # 5. Format data as HTML
         html = "<html><head><title>IAMC Report</title></head><body>"
         for title, table_data in data.items():
             html += f"<h1>{title}</h1>"
