@@ -1,7 +1,6 @@
 import logging
 import os
 
-import google.cloud.logging
 from dotenv import load_dotenv
 from etl import extractor, loader, transformer
 from flask import Flask, jsonify, request
@@ -18,14 +17,7 @@ LOG_LEVELS = {
 
 log_level_name = os.environ.get('LOG_LEVEL', 'INFO').upper()
 log_level = LOG_LEVELS.get(log_level_name, logging.INFO)
-
-if os.environ.get('K_SERVICE') is not None:
-    client = google.cloud.logging.Client()
-    client.setup_logging(log_level=log_level)
-else:
-    logging.basicConfig(level=log_level)
-
-
+logging.basicConfig(level=log_level)
 logging.info(f"Logger initialized with level: {log_level_name}")
 
 def main(dry_run=False):
