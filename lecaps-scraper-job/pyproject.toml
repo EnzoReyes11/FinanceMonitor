@@ -1,0 +1,16 @@
+[project]
+name = "lecaps-scraper-job"
+version = "0.1.0"
+description = "Retrieves latest LECAPS and BONCAPS as listed on IAMC."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4>=4.12.3,<5",
+    "flask>=3.0.3,<3.1",
+    "google-cloud-bigquery>=3.25.0,<4",
+    "google-cloud-logging>=3.12.1",
+    "gunicorn>=22.0.0,<23",
+    "pdfplumber>=0.11.0,<0.12",
+    "python-dotenv>=1.0.1,<2",
+    "requests>=2.32.4,<3",
+]
