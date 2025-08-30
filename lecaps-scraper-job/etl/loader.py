@@ -19,6 +19,7 @@ def _load_and_transform(client, project_id, dataset_id, rows, schema, transform_
         source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON
     )
 
+    final_query = ''
     try:
         # Load data into the temporary table
         logging.info(f"Loading {len(rows)} rows into temporary table {temp_table_id}")
@@ -73,7 +74,6 @@ def load_data_to_bigquery(fixed_income_rows, daily_values_rows, dry_run=False):
 
     client = bigquery.Client()
 
-    # --- Load Fixed Income Data using a Temporary Table ---
     if fixed_income_rows:
         fixed_income_schema = [
             bigquery.SchemaField("ticker_symbol", "STRING"),
@@ -88,6 +88,13 @@ def load_data_to_bigquery(fixed_income_rows, daily_values_rows, dry_run=False):
                 MERGE `{fixed_income_table_id}` T
                 USING `{{temp_table_id}}` S
                 ON T.asset_key = FARM_FINGERPRINT(S.ticker_symbol || '|byma')
+                WHEN MATCHED THEN
+                  UPDATE SET
+                    T.issue_date = CAST(S.issue_date AS DATE),
+                    T.payment_date = CAST(S.payment_date AS DATE),
+                    T.amount_at_payment = CAST(S.amount_at_payment AS NUMERIC),
+                    T.rate = CAST(S.rate AS NUMERIC),
+                    T.type = S.type
                 WHEN NOT MATCHED THEN
                   INSERT (asset_key, ticker_symbol, issue_date, payment_date, amount_at_payment, rate, type)
                   VALUES(
@@ -104,41 +111,40 @@ def load_data_to_bigquery(fixed_income_rows, daily_values_rows, dry_run=False):
         _load_and_transform(client, project_id, dataset_id, fixed_income_rows, fixed_income_schema, merge_query)
 
 
-        # --- Load Daily Values Data ---
-        if daily_values_rows:
-            daily_values_schema = [
-                bigquery.SchemaField("ticker_symbol", "STRING"),
-                bigquery.SchemaField("snapshot_date", "STRING"),
-                bigquery.SchemaField("ingestion_timestamp", "STRING"),
-                bigquery.SchemaField("maturity_value", "STRING"),
-                bigquery.SchemaField("action_rate", "STRING"),
-                bigquery.SchemaField("price_per_100_nominal_value", "STRING"),
-                bigquery.SchemaField("period_yield", "STRING"),
-                bigquery.SchemaField("annual_percentage_rate", "STRING"),
-                bigquery.SchemaField("effective_annual_rate", "STRING"),
-                bigquery.SchemaField("effective_monthly_rate", "STRING"),
-                bigquery.SchemaField("modified_duration_in_days", "INTEGER"),
-            ]
+    if daily_values_rows:
+        daily_values_schema = [
+            bigquery.SchemaField("ticker_symbol", "STRING"),
+            bigquery.SchemaField("snapshot_date", "STRING"),
+            bigquery.SchemaField("ingestion_timestamp", "STRING"),
+            bigquery.SchemaField("maturity_value", "STRING"),
+            bigquery.SchemaField("action_rate", "STRING"),
+            bigquery.SchemaField("price_per_100_nominal_value", "STRING"),
+            bigquery.SchemaField("period_yield", "STRING"),
+            bigquery.SchemaField("annual_percentage_rate", "STRING"),
+            bigquery.SchemaField("effective_annual_rate", "STRING"),
+            bigquery.SchemaField("effective_monthly_rate", "STRING"),
+            bigquery.SchemaField("modified_duration_in_days", "INTEGER"),
+        ]
 
-            insert_query = f"""
-                INSERT INTO `{daily_values_table_id}` (
-                    asset_key, ticker_symbol, snapshot_date, ingestion_timestamp,
-                    maturity_value, action_rate, price_per_100_nominal_value, period_yield,
-                    annual_percentage_rate, effective_annual_rate, effective_monthly_rate,
-                    modified_duration_in_days)
-                SELECT
-                    FARM_FINGERPRINT(S.ticker_symbol || '|byma') AS asset_key,
-                    S.ticker_symbol,
-                    CAST(S.snapshot_date AS DATE) AS snapshot_date,
-                    CAST(S.ingestion_timestamp AS TIMESTAMP) AS ingestion_timestamp,
-                    CAST(S.maturity_value AS NUMERIC) AS maturity_value,
-                    CAST(S.action_rate AS NUMERIC) AS action_rate,
-                    CAST(S.price_per_100_nominal_value AS NUMERIC) AS price_per_100_nominal_value,
-                    CAST(S.period_yield AS NUMERIC) AS period_yield,
-                    CAST(S.annual_percentage_rate AS NUMERIC) AS annual_percentage_rate,
-                    CAST(S.effective_annual_rate AS NUMERIC) AS effective_annual_rate,
-                    CAST(S.effective_monthly_rate AS NUMERIC) AS effective_monthly_rate,
-                    S.modified_duration_in_days
-                FROM `{{temp_table_id}}` S
-            """
-            _load_and_transform(client, project_id, dataset_id, daily_values_rows, daily_values_schema, insert_query)
+        insert_query = f"""
+            INSERT INTO `{daily_values_table_id}` (
+                asset_key, ticker_symbol, snapshot_date, ingestion_timestamp,
+                maturity_value, action_rate, price_per_100_nominal_value, period_yield,
+                annual_percentage_rate, effective_annual_rate, effective_monthly_rate,
+                modified_duration_in_days)
+            SELECT
+                FARM_FINGERPRINT(S.ticker_symbol || '|byma') AS asset_key,
+                S.ticker_symbol,
+                CAST(S.snapshot_date AS DATE) AS snapshot_date,
+                CAST(S.ingestion_timestamp AS TIMESTAMP) AS ingestion_timestamp,
+                CAST(S.maturity_value AS NUMERIC) AS maturity_value,
+                CAST(S.action_rate AS NUMERIC) AS action_rate,
+                CAST(S.price_per_100_nominal_value AS NUMERIC) AS price_per_100_nominal_value,
+                CAST(S.period_yield AS NUMERIC) AS period_yield,
+                CAST(S.annual_percentage_rate AS NUMERIC) AS annual_percentage_rate,
+                CAST(S.effective_annual_rate AS NUMERIC) AS effective_annual_rate,
+                CAST(S.effective_monthly_rate AS NUMERIC) AS effective_monthly_rate,
+                S.modified_duration_in_days
+            FROM `{{temp_table_id}}` S
+        """
+        _load_and_transform(client, project_id, dataset_id, daily_values_rows, daily_values_schema, insert_query)
