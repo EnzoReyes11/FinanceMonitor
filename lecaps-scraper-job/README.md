@@ -76,7 +76,6 @@ To deploy this container to Google Cloud Run, you can use the Google Cloud SDK (
     ```
 
 4.  **Deploy the image to Cloud Run**:
-    Replace `[PROJECT-ID]` with your Google Cloud project ID and `[REGION]` with your desired region (e.g., `us-central1`).
     ```sh
     gcloud run deploy lecaps-scraper \
       --image gcr.io/[PROJECT-ID]/lecaps-scraper \
