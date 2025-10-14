@@ -1,5 +1,5 @@
 **.env
 **env.yml
 **__pycache__
-venv
+**venv
 test-helper
