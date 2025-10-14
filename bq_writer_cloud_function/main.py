@@ -1,3 +1,8 @@
+"""
+" This function is currently unused. It was a test on the BQ Storage Write API,
+batch mode.
+"""
+
 import os
 
 import functions_framework
