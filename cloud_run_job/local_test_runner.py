@@ -108,4 +108,5 @@ def run_bq_batch_load():
 
 if __name__ == "__main__":
     # run_alpha_vantage_tests()
-    run_bq_batch_load()
+    run_iol_tests()
+    # run_bq_batch_load()
