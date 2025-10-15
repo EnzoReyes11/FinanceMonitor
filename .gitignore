@@ -1,5 +1,17 @@
+# ENV files
 **.env
 **env.yml
-**__pycache__
+
+# Python
 **venv
-test-helper
+**__pycache__
+
+# Terraform
+**terraform.tfvars
+**.terraform/
+**plan
+**terraform.tfstate
+**terraform.tfstate.backup
+
+# Project Files
+**_temp_**
