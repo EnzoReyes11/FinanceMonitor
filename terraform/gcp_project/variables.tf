@@ -15,3 +15,20 @@ variable "billing_account" {
   type        = string
   # No default, this should be provided securely
 }
+
+variable "org_id" {
+  description = "Optional: The ID of the GCP organization this project belongs to."
+  type        = string
+  default     = null
+}
+
+variable "service_account_id" { 
+  description = "Service Account for Data Pipeline Jobs"
+  type        = string
+  default     = "data-pipeline-jobs-sa"
+}
+
+variable "region" {
+  description = "The primary GCP region for regional resources like Artifact Registry."
+  type        = string
+}
