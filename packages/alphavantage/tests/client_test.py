@@ -1,13 +1,13 @@
-import pytest
-import requests
+from typing import Any
 from unittest.mock import MagicMock
+
+import pytest
+
 # Make sure the client is importable from your project structure
 from alphavantage.client import AlphaVantageClient
 
-# --- Mock API Responses ---
-
 # A realistic successful response from the Alpha Vantage API
-MOCK_SUCCESS_RESPONSE = {
+MOCK_SUCCESS_RESPONSE:  dict[str, Any] = {
     "Meta Data": {
         "1. Information": "Daily Prices (open, high, low, close) and Volumes",
         "2. Symbol": "AAPL",
@@ -39,19 +39,19 @@ MOCK_INVALID_SYMBOL_RESPONSE = {
 # --- Pytest Fixtures ---
 
 @pytest.fixture
-def mock_logger():
+def mock_logger() -> MagicMock:
     """Create a mock logger to inspect log messages."""
     return MagicMock()
 
 @pytest.fixture
-def client(mock_logger):
+def client(mock_logger: MagicMock):
     """Create an instance of the AlphaVantageClient with a fake token."""
     return AlphaVantageClient(api_token="FAKE_API_KEY", logger=mock_logger)
 
 
 # --- Test Cases ---
 
-def test_get_latest_daily_success(client, requests_mock):
+def test_get_latest_daily_success(client: AlphaVantageClient, requests_mock):
     """
     Test the happy path: a successful API call returns correctly parsed data.
     """

@@ -1,5 +1,6 @@
 import os
-from alphavantage_client import AlphaVantageClient 
+
+from alphavantage.client import AlphaVantageClient
 
 if __name__ == '__main__':
     api_key = os.environ.get("ALPHA_VANTAGE_API_TOKEN", "YOUR_API_KEY")
