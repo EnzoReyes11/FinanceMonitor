@@ -2,7 +2,7 @@ import pytest
 import requests
 from unittest.mock import MagicMock
 # Make sure the client is importable from your project structure
-from alphavantage_client import AlphaVantageClient
+from alphavantage.client import AlphaVantageClient
 
 # --- Mock API Responses ---
 

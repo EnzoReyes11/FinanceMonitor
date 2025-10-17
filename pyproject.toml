@@ -1,0 +1,27 @@
+[project]
+name = "financemonitor"
+version = "0.1.0"
+description = "Personal financial investment suite"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest>=8.4.2",
+]
+
+[tool.uv.workspace]
+members = [
+    "packages/*",
+    "data_pipelines/stocks/services/alphavantage_extractor",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.0",
+    "alphavantage",
+    "alphavantage-extractor",
+]
+
+[tool.uv.sources]
+alphavantage = { workspace = true }
+alphavantage-extractor = { workspace = true }
