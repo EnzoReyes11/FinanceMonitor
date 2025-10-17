@@ -16,5 +16,12 @@
             "tflint": "latest",
             "terragrunt": "latest"
         }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "charliermarsh.ruff"
+            ]
+        }
     }
 }
