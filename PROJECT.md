@@ -77,7 +77,7 @@ financemonitor/
 
 ## Backlog
 - Migrate the AlphaVantage client. 
-  1. It should be separated in two, the client code and the runner. The runner should be on the cloud run job and call the client (a package).
+  1. ~~It should be separated in two, the client code and the runner. The runner should be on the cloud run job and call the client (a package)~~.
   1. The runner should also write into GCS the output. 
   1. Add the DAG into orchestrator/stocks_dag.py and try it on Cloud Composer.
   1. Call BQ from the runner, to retrieve the list of stocks to use.
@@ -92,10 +92,12 @@ financemonitor/
 - Expose endpoints for the Portfolio API to query on demand values. This could be a Cloud Function.
 
 ## Technologies
-- Google Cloud Platform (GPC)
+- Google Cloud Platform (GCP)
 - Python
 - Flask
 - Cloud Run
 - Terraform
 - Cloud Workflows
 - Bigquery
+- Cloud Storage
+- Airflow 3
