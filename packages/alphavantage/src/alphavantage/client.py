@@ -1,6 +1,7 @@
 import logging
+from typing import Any, Dict, Optional
+
 import requests
-from typing import Dict, Optional, Any
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -37,6 +38,37 @@ class AlphaVantageClient:
         self.logger = logger or logging.getLogger(__name__)
 
 
+    def get_short_backfill(self, symbol: str):
+        if not symbol:
+            self.logger.warning("Attempted to retrieve an empty or null symbol.")
+            return None
+
+        params = {
+            "function": "TIME_SERIES_DAILY",
+            "symbol": symbol,
+            "apikey": self.api_token,
+            "outputsize": "compact",
+            "datatype": "csv"
+        }
+
+        try:
+            self.logger.info(f"Retrieving latest information for symbol: {symbol}")
+            response = requests.get(self.api_url, params=params, timeout=10)
+            response.raise_for_status()
+            stock_data = response.text
+            return stock_data
+
+
+        except ValueError: 
+            self.logger.exception(f"Error decoding JSON response for symbol {symbol}.")
+            return None
+        except requests.exceptions.RequestException as e:
+            self.logger.exception(f"Error calling Alpha Vantage API for symbol {symbol}: {e}")
+            return None
+
+
+
+
     def get_latest_daily(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Fetches the latest daily data for a single stock symbol.
@@ -57,6 +89,7 @@ class AlphaVantageClient:
             "function": "TIME_SERIES_DAILY",
             "symbol": symbol,
             "apikey": self.api_token,
+            "outputsize": "compact"
         }
 
         try:
