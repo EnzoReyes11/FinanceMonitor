@@ -1,5 +1,14 @@
 # Worklog
 
+### 18/10/25
+Saturda, early morning start. I want to have something more done during the morning, as
+I will go climbing in the afternoon! I need to move my body...I've been sitting too
+much this past week.
+
+#### Done
+- Configured Pylance, now it's able to find packages.
+- Some general .vscode configurations.
+
 ### 17/10/25
 Today was very productive. Lots of changes introduced. 
 I switched to Claude Sonnet 4.5. It really was very helpfull, 

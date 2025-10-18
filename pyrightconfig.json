@@ -1,0 +1,25 @@
+{
+  "include": [
+    "packages/*/src",
+    "data_pipelines/*/services/*/src"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/.venv",
+    "**/node_modules"
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "pythonVersion": "3.11",
+      "pythonPlatform": "Linux",
+      "extraPaths": [
+        "packages/alphavantage/src",
+        "packages/*/src"
+      ]
+    }
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "reportMissingTypeStubs": "none"
+}
