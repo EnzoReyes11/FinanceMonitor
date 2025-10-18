@@ -82,12 +82,14 @@ financemonitor/
   1. Add the DAG into orchestrator/stocks_dag.py and try it on Cloud Composer.
   1. Call BQ from the runner, to retrieve the list of stocks to use.
   1. Write the ouput from the runner into BQ. Define if the runner will do this, or it will a different step in the DAG.
+  1. Write tests for this job.
 - Migrate the LECAP' scraper.
 - Add transactions into the porfolio. 
   1. Use the new BQ schemas.
   1. Read the transactions log from google sheets.
   1. Create a new LookerStudio dashboard.
 - Add/migrate the IOL code.
+- Expose endpoints for the Portfolio API to query on demand values. This could be a Cloud Function.
 
 ## Technologies
 - Google Cloud Platform (GPC)

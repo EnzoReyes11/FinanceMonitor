@@ -1,5 +1,32 @@
 # Worklog
 
+### 17/10/25
+Today was very productive. Lots of changes introduced. 
+I switched to Claude Sonnet 4.5. It really was very helpfull, 
+more than Gemini. 
+
+#### Done
+- The monorepo a proper structure now. I'm using UV Workspaces to work
+with packages. 
+- Building: cloudbuild.yml. That file will be added alongside the Dockerfile on
+each standalone job/service. The deployment gets done from the root.
+- Makefile was also introduced. It's able to build and update my project infrastructure,
+running cloud build and terraform.
+- Tests: they are run with pytest from the root directory. Modules can be tested by themself
+or everything together.
+- AV Extractor: started to update this job to extract and load into GCS.
+- AV Loader: draft. Reads from GCS and writes into BQ.
+- Airflow: draft of the DAG to extract and load.
+
+#### Next steps:
+- Work on the AV Extractor. 
+  - It needs to read from BQ the list of Symbols to get (market and other data).
+  - Query them and write into GCS.
+  - Both for backfill and daily.
+  - Review the BQ schemas, from the tables we read and the tables we write to.
+  - Work in the data loader.
+
+
 ### 14/10/25
 Putting this project in order, as I haven't been working on it for a while now.
 It doesn't 
@@ -34,6 +61,7 @@ TODO:
   1. Add the DAG into orchestrator/stocks_dag.py and try it on Cloud Composer.
   1. Call BQ from the runner, to retrieve the list of stocks to use.
   1. Write the ouput from the runner into BQ. Define if the runner will do this, or it will a different step in the DAG.
+  1. Write tests for this job.
 - Migrate the LECAP' scraper.
 - Add transactions into the porfolio. 
   1. Use the new BQ schemas.
