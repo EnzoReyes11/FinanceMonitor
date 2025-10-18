@@ -1,6 +1,9 @@
+#import os
+import json
 import logging
-import os
-from alphavantage.client import AlphaVantageClient
+import sys
+
+#from alphavantage.client import AlphaVantageClient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,16 +13,16 @@ logging.basicConfig(
 )
 
 def main():
-   client = AlphaVantageClient('sdas');
-   print(f"Completed Task")
+   #client = AlphaVantageClient('sdas');
+   print("Completed Task")
 
 
 if __name__ == "__main__":
    try:
       main()
-   except Exception as err:
+   except Exception:
       message = (
-          f"Task test"
+          "Task test"
       )
 
       print(json.dumps({"message": message, "severity": "ERROR"}))

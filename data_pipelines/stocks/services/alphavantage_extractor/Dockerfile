@@ -1,14 +1,18 @@
-FROM python:3.13-slim
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
 
 ENV PYTHONUNBUFFERED=True
 
 WORKDIR /app
 
-COPY requirements.txt .
+# Copy workspace files
+COPY pyproject.toml uv.lock ./
+COPY packages/alphavantage ./packages/alphavantage
+COPY data_pipelines/stocks/services/alphavantage_extractor ./data_pipelines/stocks/services/alphavantage_extractor
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN uv sync --frozen --no-dev
 
-COPY main.py .
+WORKDIR /app/data_pipelines/stocks/services/alphavantage_extractor
+
+CMD ["uv", "run", "alphavantage-extract"]
 
 
-CMD ["/usr/local/bin/python3", "main.py"]
