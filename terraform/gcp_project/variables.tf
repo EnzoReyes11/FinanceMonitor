@@ -32,3 +32,13 @@ variable "region" {
   description = "The primary GCP region for regional resources like Artifact Registry."
   type        = string
 }
+
+variable "environment" {
+  description = "The running environment"
+  type        = string
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "Environment must be one of: dev, staging, prod"
+  }
+}

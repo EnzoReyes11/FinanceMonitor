@@ -2,12 +2,13 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from alphavantage.client import AlphaVantageClient
 from dotenv import load_dotenv
 from google.cloud import bigquery, storage
+from google.cloud.exceptions import Forbidden, NotFound
 
 load_dotenv()
 
@@ -17,13 +18,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configuration
 ALPHA_VANTAGE_API_TOKEN = os.environ.get("ALPHA_VANTAGE_API_TOKEN")
 GCS_BUCKET = os.environ.get("GCS_BUCKET", "financemonitor-data")
-BQ_PROJECT = os.environ.get("GCP_PROJECT")
-BQ_DATASET = os.environ.get("BQ_DATASET", "stocks")
-MODE = os.environ.get("MODE", "daily")  # "daily" or "backfill"
-RUN_DATE = os.environ.get("RUN_DATE")  # Optional: for Airflow templating
+BQ_PROJECT = os.environ.get("BQ_PROJECT_ID")
+BQ_DATASET = os.environ.get("BQ_DATASET_ID", "financemonitor")
+MODE = os.environ.get("MODE", "backfill")  # "daily" or "backfill"
+RUN_DATE = os.environ.get("RUN_DATE")
 
 
 class AlphaVantageExtractor:
@@ -40,16 +40,16 @@ class AlphaVantageExtractor:
         
         self.client = AlphaVantageClient(ALPHA_VANTAGE_API_TOKEN)
         self.storage_client = storage.Client()
-        self.bq_client = bigquery.Client()  # Only for reading symbols
+        self.bq_client = bigquery.Client() 
         self.bucket = self.storage_client.bucket(GCS_BUCKET)
-        self.run_date = RUN_DATE or datetime.utcnow().strftime("%Y-%m-%d")
+        self.run_date = RUN_DATE or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         
-    def get_symbols_to_process(self) -> List[str]:
+    def get_symbols_to_process(self) -> List[tuple[str, str]]:
         """Read symbols from BigQuery that need processing"""
         query = f"""
-            SELECT DISTINCT symbol
-            FROM `{BQ_PROJECT}.{BQ_DATASET}.symbols_master`
-            WHERE active = TRUE
+            SELECT DISTINCT symbol, market
+            FROM `{BQ_PROJECT}.{BQ_DATASET}.stocks`
+            WHERE market = 'US'
             ORDER BY symbol
         """
         
@@ -60,31 +60,28 @@ class AlphaVantageExtractor:
             return symbols
         except Exception as e:
             logger.warning(f"Could not read from BQ, using defaults: {e}")
-            # Fallback for development/testing
-            return ["GOOGL", "AAPL", "MSFT"]
+            return [("GOOGL", "US")] #, ("IBM", "us")]
     
-    def extract_symbol(self, symbol: str) -> Optional[str]:
+    def extract_symbol(self, symbol: str, market: str) -> Optional[str]:
         """
         Extract data for a single symbol and write to GCS.
         
         Returns:
             GCS URI if successful, None otherwise
         """
+        blob_path = ''
+        gcs_uri = ''
+
         try:
             logger.info(f"Extracting {MODE} data for {symbol}")
             
-            # Get data from API
             data = self.client.get_short_backfill(symbol)
-            
+
             if not data:
                 logger.warning(f"No data returned for {symbol}")
                 return None
             
-            # Determine GCS path based on mode
-            if MODE == "backfill":
-                blob_path = f"raw/backfill/{symbol}/{self.run_date}.csv"
-            else:
-                blob_path = f"raw/daily/{symbol}/{self.run_date}.csv"
+            blob_path = f"raw/backfill/av/{market}/{symbol}/{self.run_date}.csv"
             
             # Upload to GCS
             blob = self.bucket.blob(blob_path)
@@ -92,7 +89,7 @@ class AlphaVantageExtractor:
             
             # Add metadata for tracking
             blob.metadata = {
-                "extracted_at": datetime.utcnow().isoformat(),
+                "extracted_at": datetime.now(timezone.utc).isoformat(),
                 "mode": MODE,
                 "symbol": symbol
             }
@@ -102,6 +99,12 @@ class AlphaVantageExtractor:
             logger.info(f"✅ Uploaded {symbol} to {gcs_uri}")
             return gcs_uri
             
+        except NotFound as e:
+            logger.error(f"Bucket '{gcs_uri}' or blob '{blob_path}' not found. {e}", exc_info=True)
+            return None
+        except Forbidden as e:
+            logger.error(f"Permission forbidden on  '{gcs_uri}' or blob '{blob_path}'. {e}", exc_info=True)
+            return None
         except Exception as e:
             logger.error(f"❌ Failed to extract {symbol}: {e}", exc_info=True)
             return None
@@ -111,6 +114,9 @@ class AlphaVantageExtractor:
         logger.info(f"🚀 Starting extraction in {MODE} mode for {self.run_date}")
         
         symbols = self.get_symbols_to_process()
+        print(symbols)
+
+        return 
         
         results = {
             "success": [],
@@ -118,16 +124,20 @@ class AlphaVantageExtractor:
             "total": len(symbols)
         }
         
-        for symbol in symbols:
-            gcs_uri = self.extract_symbol(symbol)
+        for (symbol, market) in symbols:
+            gcs_uri = self.extract_symbol(symbol, market)
             
             if gcs_uri:
                 results["success"].append({
                     "symbol": symbol,
+                    "market": market,
                     "gcs_uri": gcs_uri
                 })
             else:
-                results["failed"].append(symbol)
+                results["failed"].append({
+                    "symbol": symbol,
+                    "market": market,
+                    })
         
         # Log summary
         logger.info(f"📊 Extraction complete: {len(results['success'])}/{results['total']} successful")
@@ -143,13 +153,13 @@ class AlphaVantageExtractor:
     
     def _write_manifest(self, results: dict):
         """Write a manifest file with extraction results for the loader"""
-        manifest_path = f"manifests/{MODE}/{self.run_date}.json"
+        manifest_path = f"manifests/{MODE}/av/{self.run_date}.json"
         blob = self.bucket.blob(manifest_path)
         
         manifest = {
             "run_date": self.run_date,
             "mode": MODE,
-            "extracted_at": datetime.utcnow().isoformat(),
+            "extracted_at": datetime.now(timezone.utc).isoformat(),
             "results": results
         }
         
@@ -158,7 +168,7 @@ class AlphaVantageExtractor:
             content_type="application/json"
         )
         
-        logger.info(f"📝 Wrote manifest to gs://{GCS_BUCKET}/{manifest_path}")
+        logger.info(f"Wrote manifest to gs://{GCS_BUCKET}/{manifest_path}")
 
 
 def main():
