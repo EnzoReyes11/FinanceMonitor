@@ -13,6 +13,6 @@ RUN uv sync --frozen --no-dev
 
 WORKDIR /app/data_pipelines/stocks/services/alphavantage_extractor
 
-CMD ["uv", "run", "alphavantage-extract"]
+CMD ["uv", "run", "extract"]
 
 

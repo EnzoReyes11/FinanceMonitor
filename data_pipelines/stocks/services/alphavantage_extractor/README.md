@@ -6,7 +6,7 @@
 ```
  $ cd FinanceMonitor/data_pipelines/stocks/services/alphavantage_extractor
  $ uv sync
- $ uv run alphavantage-extract
+ $ uv run extract
  $ uv run pytest
 ```
 

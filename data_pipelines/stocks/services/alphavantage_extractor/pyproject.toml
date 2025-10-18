@@ -15,4 +15,4 @@ alphavantage = { workspace = true }
 
 # Optional: Add scripts if you want CLI commands
 [project.scripts]
-alphavantage-extract = "alphavantage_extractor.main:main"
+extract = "alphavantage_extractor.main:main"
