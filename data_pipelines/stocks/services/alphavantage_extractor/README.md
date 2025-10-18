@@ -2,19 +2,41 @@
 
 ## Locally
 
+*Note*: UV required.
 ```
- $ uv venv
- $ uv pip install -r requirements.txt
- $ uv run fastapi dev
+ $ cd FinanceMonitor/data_pipelines/stocks/services/alphavantage_extractor
+ $ uv sync
+ $ uv run alphavantage-extract
+ $ uv run pytest
+```
+
+## Locally in a Docker Container
+
+*Note*: Docker required.
+```
+ $ cd FinanceMonitor 
+ $ docker build -f data_pipelines/stocks/services/alphavantage_extractor/Dockerfile \
+   -t alphavantage-extractor:<TAG> .
+ $ docker run alphavantage-extractor:<TAG>
 ```
 
 ## GCP
 
 *Note*: GCP SDK required.
 
+### Deploy
 ```
+ $ cd FinanceMonitor
  $ gcloud config set project <GCP PROJECT ID>
  $ gcloud auth login
- $ gcloud run deploy --source .  alphavantage-extractor --region us-central1
- $ gcloud builds submit --tag us-central1-docker.pkg.dev/enzoreyes-financemonitor-dev/financemonitor/alphavantage-extractor:latest .
+ $ make deploy-alphavantage_extractor
+```
+
+
+### Deploy and Execute
+```
+ $ cd financemonitor
+ $ gcloud config set project <GCP PROJECT ID>
+ $ gcloud auth login
+ $ make test-alphavantage_extractor
 ```
