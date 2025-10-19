@@ -13,13 +13,13 @@ from google.cloud.exceptions import Forbidden, NotFound
 load_dotenv()
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 ALPHA_VANTAGE_API_TOKEN = os.environ.get("ALPHA_VANTAGE_API_TOKEN")
-GCS_BUCKET = os.environ.get("GCS_BUCKET", "financemonitor-data")
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "enzoreyes-financemonitor-dev-financemonitor-data")
 BQ_PROJECT = os.environ.get("BQ_PROJECT_ID")
 BQ_DATASET = os.environ.get("BQ_DATASET_ID", "financemonitor")
 MODE = os.environ.get("MODE", "backfill")  # "daily" or "backfill"
@@ -55,7 +55,7 @@ class AlphaVantageExtractor:
         
         try:
             results = self.bq_client.query(query).result()
-            symbols = [row.symbol for row in results]
+            symbols = [(row.symbol, row.market) for row in results]
             logger.info(f"Found {len(symbols)} symbols to process")
             return symbols
         except Exception as e:
@@ -83,6 +83,7 @@ class AlphaVantageExtractor:
             
             blob_path = f"raw/backfill/av/{market}/{symbol}/{self.run_date}.csv"
             
+            logger.debug('BUCKET ' + GCS_BUCKET)
             # Upload to GCS
             blob = self.bucket.blob(blob_path)
             blob.upload_from_string(data, content_type="text/csv")
@@ -94,7 +95,7 @@ class AlphaVantageExtractor:
                 "symbol": symbol
             }
             blob.patch()
-            
+
             gcs_uri = f"gs://{GCS_BUCKET}/{blob_path}"
             logger.info(f"✅ Uploaded {symbol} to {gcs_uri}")
             return gcs_uri
@@ -116,8 +117,6 @@ class AlphaVantageExtractor:
         symbols = self.get_symbols_to_process()
         print(symbols)
 
-        return 
-        
         results = {
             "success": [],
             "failed": [],
