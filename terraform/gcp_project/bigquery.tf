@@ -159,22 +159,22 @@ resource "google_bigquery_table" "dim_asset" {
       description = "Subtype: COMMON_STOCK, GOVERNMENT_BOND, etc."
     },
     {
-      name        = "market_name"
-      type        = "STRING"
-      mode        = "NULLABLE"
-      description = "Market name"
-    },
-    {
-      name        = "market_country"
-      type        = "STRING"
-      mode        = "NULLABLE"
-      description = "Market country code (ISO 3166-1 alpha-2)"
-    },
-    {
-      name        = "market_exchange"
+      name        = "exchange_code"
       type        = "STRING"
       mode        = "NULLABLE"
       description = "Exchange: NYSE, NASDAQ, LSE, BCBA, etc."
+    },
+    {
+      name        = "exchange_name"
+      type        = "STRING"
+      mode        = "NULLABLE"
+      description = "Exchange name: New York Stock Exchange, Bolsa y Mercados de Buenos Aires."
+    },
+    {
+      name        = "exchange_country"
+      type        = "STRING"
+      mode        = "NULLABLE"
+      description = "Market country code (ISO 3166-1 alpha-2)"
     },
     {
       name        = "currency_code"

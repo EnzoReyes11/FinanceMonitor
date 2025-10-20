@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 ALPHA_VANTAGE_API_TOKEN = os.environ.get("ALPHA_VANTAGE_API_TOKEN")
 GCS_BUCKET = os.environ.get("GCS_BUCKET", "enzoreyes-financemonitor-dev-financemonitor-data")
 BQ_PROJECT = os.environ.get("BQ_PROJECT_ID")
-BQ_DATASET = os.environ.get("BQ_DATASET_ID", "financemonitor")
+BQ_DATASET = os.environ.get("BQ_DATASET_ID", "monitor")
 MODE = os.environ.get("MODE", "backfill")  # "daily" or "backfill"
 RUN_DATE = os.environ.get("RUN_DATE")
 
@@ -44,25 +44,29 @@ class AlphaVantageExtractor:
         self.bucket = self.storage_client.bucket(GCS_BUCKET)
         self.run_date = RUN_DATE or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         
-    def get_symbols_to_process(self) -> List[tuple[str, str]]:
+    def get_symbols_to_process(self) -> List[tuple[str, str, str]]:
         """Read symbols from BigQuery that need processing"""
         query = f"""
-            SELECT DISTINCT symbol, market
-            FROM `{BQ_PROJECT}.{BQ_DATASET}.stocks`
-            WHERE market = 'US'
-            ORDER BY symbol
+            SELECT DISTINCT ticker_symbol, exchange_country, exchange_code
+            FROM `{BQ_PROJECT}.{BQ_DATASET}.dim_asset`
+            WHERE 
+              exchange_country = 'US' 
+              AND is_active = TRUE 
+              AND asset_type = 'STOCK'
+            ORDER BY ticker_symbol
+            LIMIT 1
         """
         
         try:
             results = self.bq_client.query(query).result()
-            symbols = [(row.symbol, row.market) for row in results]
+            symbols = [(row.ticker_symbol, row.exchange_country, row.exchange_code) for row in results]
             logger.info(f"Found {len(symbols)} symbols to process")
             return symbols
         except Exception as e:
             logger.warning(f"Could not read from BQ, using defaults: {e}")
-            return [("GOOGL", "US")] #, ("IBM", "us")]
+            return [("GOOGL", "US", "NASDAQ")] 
     
-    def extract_symbol(self, symbol: str, market: str) -> Optional[str]:
+    def extract_symbol(self, symbol: str, country: str, exchange: str) -> Optional[str]:
         """
         Extract data for a single symbol and write to GCS.
         
@@ -81,7 +85,7 @@ class AlphaVantageExtractor:
                 logger.warning(f"No data returned for {symbol}")
                 return None
             
-            blob_path = f"raw/backfill/av/{market}/{symbol}/{self.run_date}.csv"
+            blob_path = f"raw/backfill/av/{country}/{exchange}/{symbol}/{self.run_date}.csv"
             
             logger.debug('BUCKET ' + GCS_BUCKET)
             # Upload to GCS
@@ -123,19 +127,21 @@ class AlphaVantageExtractor:
             "total": len(symbols)
         }
         
-        for (symbol, market) in symbols:
-            gcs_uri = self.extract_symbol(symbol, market)
+        for (symbol, country, exchange) in symbols:
+            gcs_uri = self.extract_symbol(symbol, country, exchange)
             
             if gcs_uri:
                 results["success"].append({
                     "symbol": symbol,
-                    "market": market,
+                    "country": country,
+                    "exchange": exchange,
                     "gcs_uri": gcs_uri
                 })
             else:
                 results["failed"].append({
                     "symbol": symbol,
-                    "market": market,
+                    "country": country,
+                    "exchange": exchange,
                     })
         
         # Log summary
