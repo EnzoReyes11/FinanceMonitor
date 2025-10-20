@@ -24,7 +24,7 @@ ALPHA_VANTAGE_API_TOKEN = os.environ.get("ALPHA_VANTAGE_API_TOKEN")
 GCS_BUCKET = os.environ.get("GCS_BUCKET", "enzoreyes-financemonitor-dev-financemonitor-data")
 BQ_PROJECT = os.environ.get("BQ_PROJECT_ID")
 BQ_DATASET = os.environ.get("BQ_DATASET_ID", "monitor")
-MODE = os.environ.get("MODE", "backfill")  # "daily" or "backfill"
+MODE = os.environ.get("MODE", "daily")  # "daily" or "backfill"
 RUN_DATE = os.environ.get("RUN_DATE")
 DIRECTORY = 'alphavantage'
 
@@ -82,17 +82,24 @@ class AlphaVantageExtractor:
             
             data = self.client.get_short_backfill(symbol)
 
-            if not data:
+            if data.empty:
                 logger.warning(f"No data returned for {symbol}")
                 return None
+
+            data['ticker_symbol'] = symbol
+            data['exchange_name'] = exchange
+            data['country'] = country
             
-            blob_path = f"raw/backfill/{DIRECTORY}/{country}/{exchange}/{symbol}/{self.run_date}.csv"
-            
+            if MODE == 'daily':
+                data = data.head(1)
+
+            blob_path = f"raw/{MODE}/{DIRECTORY}/{country}_{exchange}_{symbol}/{self.run_date}.csv"
+        
             logger.debug('BUCKET ' + GCS_BUCKET)
             # Upload to GCS
             blob = self.bucket.blob(blob_path)
-            blob.upload_from_string(data, content_type="text/csv")
-            
+            blob.upload_from_string(data.to_csv(index=False), content_type="text/csv")
+
             # Add metadata for tracking
             blob.metadata = {
                 "extracted_at": datetime.now(timezone.utc).isoformat(),
@@ -104,6 +111,7 @@ class AlphaVantageExtractor:
             gcs_uri = f"gs://{GCS_BUCKET}/{blob_path}"
             logger.info(f"✅ Uploaded {symbol} to {gcs_uri}")
             return gcs_uri
+
             
         except NotFound as e:
             logger.error(f"Bucket '{gcs_uri}' or blob '{blob_path}' not found. {e}", exc_info=True)
