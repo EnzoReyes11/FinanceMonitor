@@ -14,6 +14,8 @@ SERVICE_PATH = data_pipelines/stocks/services/$(1)
 # Default target
 help:
 	@echo "Available targets:"
+	@echo "  make update-project      - Updates project infrastructure"
+	@echo "  make update-services     - Services infrastructure"
 	@echo "  make build-<service>     - Build a specific service"
 	@echo "  make deploy-<service>    - Deploy a specific service"
 	@echo "  make test-<service>      - Test a specific service"
