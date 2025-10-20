@@ -3,9 +3,11 @@
 ### 20/10/25
 - Added terraform scripts to generate BQ dataset
 - A script to populate dim_date
+- Manually populating DIM Asset now
 
 #### Working On
-- How to populate dim_asset? Where should I get the data from?
+- Read from GCS and write into *`fact_price_history`*
+
 
 ### 19/10/25
 
