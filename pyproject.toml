@@ -20,6 +20,8 @@ dev = [
     "ruff>=0.14.0",
     "alphavantage",
     "alphavantage-extractor",
+    "holidays>=0.82",
+    "pandas>=2.3.3",
 ]
 
 [tool.uv.sources]

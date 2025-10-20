@@ -42,3 +42,9 @@ variable "environment" {
     error_message = "Environment must be one of: dev, staging, prod"
   }
 }
+
+variable "bq_dataset_id" {
+  description = "BigQuery dataset ID"
+  type        = string
+  default     = "monitor"
+}

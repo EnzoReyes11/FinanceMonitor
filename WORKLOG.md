@@ -1,7 +1,21 @@
 # Worklog
 
+### 20/10/25
+- Added terraform scripts to generate BQ dataset
+- A script to populate dim_date
+
+#### Working On
+- How to populate dim_asset? Where should I get the data from?
+
+### 19/10/25
+
+#### Done
+- Writing to GCS
+
+#### Next Steps
+
 ### 18/10/25
-Saturda, early morning start. I want to have something more done during the morning, as
+Saturday, early morning start. I want to have something more done during the morning, as
 I will go climbing in the afternoon! I need to move my body...I've been sitting too
 much this past week.
 
