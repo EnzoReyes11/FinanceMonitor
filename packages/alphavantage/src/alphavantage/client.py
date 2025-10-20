@@ -62,8 +62,25 @@ class AlphaVantageClient:
         except ValueError: 
             self.logger.exception(f"Error decoding JSON response for symbol {symbol}.")
             return None
-        except requests.exceptions.RequestException as e:
-            self.logger.exception(f"Error calling Alpha Vantage API for symbol {symbol}: {e}")
+        except requests.exceptions.HTTPError as e:
+            self.logger.exception(f"HTTP error occurred, symbol {symbol}:")
+            self.logger.info(f"Request method: {e.request.method}")
+            self.logger.info(f"Request URL: {e.request.url}")
+            self.logger.info(f"Request headers: {e.request.headers}")
+            self.logger.info(f"Request body: {e.request.body}")
+
+            return None
+        except requests.exceptions.Timeout as e:
+            self.logger.exception(f"Timeout error on AlphaVantage call {symbol}.")
+            self.logger.info(f"Request method: {e.request.method}")
+            self.logger.info(f"Request URL: {e.request.url}")
+            self.logger.info(f"Request headers: {e.request.headers}")
+            self.logger.info(f"Request body: {e.request.body}")
+
+            return None
+        except requests.exceptions.RequestException:
+            self.logger.exception(f"Error calling Alpha Vantage API for symbol {symbol}")
+
             return None
 
 

@@ -6,6 +6,7 @@
 - Manually populating DIM Asset now
 
 #### Working On
+- Error on AV request
 - Read from GCS and write into *`fact_price_history`*
 
 
