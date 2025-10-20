@@ -12,8 +12,10 @@ from google.cloud.exceptions import Forbidden, NotFound
 
 load_dotenv()
 
+LOG_LEVEL = os.environ.get("LOG_LEVEL", logging.INFO)
+
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=LOG_LEVEL,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
@@ -24,7 +26,7 @@ BQ_PROJECT = os.environ.get("BQ_PROJECT_ID")
 BQ_DATASET = os.environ.get("BQ_DATASET_ID", "monitor")
 MODE = os.environ.get("MODE", "backfill")  # "daily" or "backfill"
 RUN_DATE = os.environ.get("RUN_DATE")
-
+DIRECTORY = 'alphavantage'
 
 class AlphaVantageExtractor:
     """
@@ -38,7 +40,7 @@ class AlphaVantageExtractor:
         if not ALPHA_VANTAGE_API_TOKEN:
             raise ValueError("ALPHA_VANTAGE_API_TOKEN not set")
         
-        self.client = AlphaVantageClient(ALPHA_VANTAGE_API_TOKEN)
+        self.client = AlphaVantageClient(ALPHA_VANTAGE_API_TOKEN, logger=logger)
         self.storage_client = storage.Client()
         self.bq_client = bigquery.Client() 
         self.bucket = self.storage_client.bucket(GCS_BUCKET)
@@ -54,7 +56,6 @@ class AlphaVantageExtractor:
               AND is_active = TRUE 
               AND asset_type = 'STOCK'
             ORDER BY ticker_symbol
-            LIMIT 1
         """
         
         try:
@@ -64,7 +65,7 @@ class AlphaVantageExtractor:
             return symbols
         except Exception as e:
             logger.warning(f"Could not read from BQ, using defaults: {e}")
-            return [("GOOGL", "US", "NASDAQ")] 
+            return [("GOOG", "US", "NASDAQ")] 
     
     def extract_symbol(self, symbol: str, country: str, exchange: str) -> Optional[str]:
         """
@@ -85,7 +86,7 @@ class AlphaVantageExtractor:
                 logger.warning(f"No data returned for {symbol}")
                 return None
             
-            blob_path = f"raw/backfill/av/{country}/{exchange}/{symbol}/{self.run_date}.csv"
+            blob_path = f"raw/backfill/{DIRECTORY}/{country}/{exchange}/{symbol}/{self.run_date}.csv"
             
             logger.debug('BUCKET ' + GCS_BUCKET)
             # Upload to GCS
@@ -158,7 +159,7 @@ class AlphaVantageExtractor:
     
     def _write_manifest(self, results: dict):
         """Write a manifest file with extraction results for the loader"""
-        manifest_path = f"manifests/{MODE}/av/{self.run_date}.json"
+        manifest_path = f"manifests/{MODE}/{DIRECTORY}/{self.run_date}.json"
         blob = self.bucket.blob(manifest_path)
         
         manifest = {
