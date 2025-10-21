@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from alphavantage.client import AlphaVantageClient
@@ -44,7 +44,8 @@ class AlphaVantageExtractor:
         self.storage_client = storage.Client()
         self.bq_client = bigquery.Client() 
         self.bucket = self.storage_client.bucket(GCS_BUCKET)
-        self.run_date = RUN_DATE or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        utc_minus_3 = timezone(timedelta(hours=-3))
+        self.run_date = RUN_DATE or datetime.now(utc_minus_3).strftime("%Y-%m-%d")
         
     def get_symbols_to_process(self) -> List[tuple[str, str, str]]:
         """Read symbols from BigQuery that need processing"""
@@ -89,6 +90,7 @@ class AlphaVantageExtractor:
             data['ticker_symbol'] = symbol
             data['exchange_name'] = exchange
             data['country'] = country
+            data['is_adjusted'] = "false"
             
             if MODE == 'daily':
                 data = data.head(1)

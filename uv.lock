@@ -12,6 +12,7 @@ resolution-markers = [
 members = [
     "alphavantage",
     "alphavantage-extractor",
+    "alphavantage-loader",
     "financemonitor",
 ]
 
@@ -20,12 +21,14 @@ name = "alphavantage"
 version = "0.1.0"
 source = { editable = "packages/alphavantage" }
 dependencies = [
+    { name = "pandas" },
     { name = "requests" },
     { name = "requests-mock" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "pandas", specifier = ">=2.3.3" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "requests-mock", specifier = ">=1.12.1" },
 ]
@@ -34,6 +37,27 @@ requires-dist = [
 name = "alphavantage-extractor"
 version = "0.1.0"
 source = { editable = "data_pipelines/stocks/services/alphavantage_extractor" }
+dependencies = [
+    { name = "alphavantage" },
+    { name = "google-cloud-bigquery" },
+    { name = "google-cloud-storage" },
+    { name = "pandas" },
+    { name = "python-dotenv" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alphavantage", editable = "packages/alphavantage" },
+    { name = "google-cloud-bigquery", specifier = ">=3.38.0" },
+    { name = "google-cloud-storage", specifier = ">=3.4.0" },
+    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "python-dotenv", specifier = ">=1.1.0" },
+]
+
+[[package]]
+name = "alphavantage-loader"
+version = "0.1.0"
+source = { editable = "data_pipelines/stocks/services/alphavantage_loader" }
 dependencies = [
     { name = "alphavantage" },
     { name = "google-cloud-bigquery" },
@@ -253,6 +277,7 @@ dependencies = [
 dev = [
     { name = "alphavantage" },
     { name = "alphavantage-extractor" },
+    { name = "alphavantage-loader" },
     { name = "holidays" },
     { name = "pandas" },
     { name = "pytest" },
@@ -267,6 +292,7 @@ requires-dist = [{ name = "pytest", specifier = ">=8.4.2" }]
 dev = [
     { name = "alphavantage", editable = "packages/alphavantage" },
     { name = "alphavantage-extractor", editable = "data_pipelines/stocks/services/alphavantage_extractor" },
+    { name = "alphavantage-loader", editable = "data_pipelines/stocks/services/alphavantage_loader" },
     { name = "holidays", specifier = ">=0.82" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pytest", specifier = ">=8.4.2" },

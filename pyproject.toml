@@ -11,6 +11,7 @@ dependencies = [
 members = [
     "packages/*",
     "data_pipelines/stocks/services/alphavantage_extractor",
+    "data_pipelines/stocks/services/alphavantage_loader",
 ]
 
 [dependency-groups]
@@ -20,6 +21,7 @@ dev = [
     "ruff>=0.14.0",
     "alphavantage",
     "alphavantage-extractor",
+    "alphavantage-loader",
     "holidays>=0.82",
     "pandas>=2.3.3",
 ]
@@ -27,3 +29,4 @@ dev = [
 [tool.uv.sources]
 alphavantage = { workspace = true }
 alphavantage-extractor = { workspace = true }
+alphavantage-loader = { workspace = true }

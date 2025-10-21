@@ -7,12 +7,12 @@ WORKDIR /app
 # Copy workspace files
 COPY pyproject.toml uv.lock ./
 COPY packages/alphavantage ./packages/alphavantage
-COPY data_pipelines/stocks/services/alphavantage_extractor ./data_pipelines/stocks/services/alphavantage_extractor
+COPY data_pipelines/stocks/services/alphavantage_loader ./data_pipelines/stocks/services/alphavantage_loader
 
 RUN uv sync --frozen --no-dev
 
-WORKDIR /app/data_pipelines/stocks/services/alphavantage_extractor
+WORKDIR /app/data_pipelines/stocks/services/alphavantage_loader
 
-CMD ["uv", "run", "extract"]
+CMD ["uv", "run", "load"]
 
 

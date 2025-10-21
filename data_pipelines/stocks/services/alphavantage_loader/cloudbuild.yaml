@@ -1,0 +1,29 @@
+# Default substitutions - can be overridden via --substitutions flag
+substitutions:
+  _VERSION: 'latest'
+  _SERVICE_NAME: 'alphavantage-loader'
+  _REGION: 'us-central1'
+  _ARTIFACT_REGISTRY_REPO: 'financemonitor'  # Your AR repo name
+
+steps:
+  # Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'data_pipelines/stocks/services/alphavantage_loader/Dockerfile'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REGISTRY_REPO}/${_SERVICE_NAME}:${_VERSION}'
+      - '.'
+
+# Store built images in Artifact Registry
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REGISTRY_REPO}/${_SERVICE_NAME}:${_VERSION}'
+
+# Optional: Set build timeout
+timeout: '600s'
+
+# Optional: Configure machine type for faster builds
+options:
+#  machineType: 'N1_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY

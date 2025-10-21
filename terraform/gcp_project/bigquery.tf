@@ -269,7 +269,7 @@ resource "google_bigquery_table" "fact_price_history" {
     },
     {
       name        = "volume"
-      type        = "INTEGER"
+      type        = "NUMERIC"
       mode        = "NULLABLE"
       description = "Trading volume"
     },

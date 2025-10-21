@@ -58,6 +58,9 @@ class AlphaVantageClient:
             response = requests.get(self.api_url, params=params, timeout=10)
             
             response.raise_for_status()
+            if response.text.__contains__("We have detected your API key"):
+                self.logger.error('AV API key exceeded the daily limit')
+                return pd.DataFrame()
 
             return pd.read_csv(io.StringIO(response.text))
 
