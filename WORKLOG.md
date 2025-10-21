@@ -17,7 +17,6 @@ I will consider other options to get the values, maybe yfinance.
 support those "plan b" paths.
 - Try the Docker container and on Cloud Run. I only tried this locally.
 
-
 ### 19/10/25
 
 #### Done
