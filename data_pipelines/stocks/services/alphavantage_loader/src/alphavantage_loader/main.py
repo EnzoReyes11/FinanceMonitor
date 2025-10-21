@@ -4,7 +4,7 @@ import os
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import Any
 
 from dotenv import load_dotenv
 from google.cloud import bigquery, storage
@@ -44,95 +44,8 @@ class AlphaVantageLoader:
         utc_minus_3 = timezone(timedelta(hours=-3))
         self.run_date = RUN_DATE or datetime.now(utc_minus_3).strftime("%Y-%m-%d")
         self.table_id = f"{BQ_PROJECT}.{BQ_DATASET}.fact_price_history"
-    
 
-    def _load_and_transform(self, project_id, dataset_id, gcs_uris, schema, transform_query):
-        """Helper function to load data to a temp table and run a transform query."""
-        if not gcs_uris:
-            return
-
-        client = self.bq_client
-
-        temp_table_name = f"temp_source_{uuid.uuid4().hex}"
-        temp_table_id = f"{project_id}.{dataset_id}.{temp_table_name}"
-
-        try:
-            job_config = bigquery.LoadJobConfig(
-                source_format=bigquery.SourceFormat.CSV,
-                skip_leading_rows=1,
-                autodetect=False,
-                write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-                schema=[
-                    bigquery.SchemaField("timestamp", "DATE"),
-                    bigquery.SchemaField("open", "FLOAT64"),
-                    bigquery.SchemaField("high", "FLOAT64"),
-                    bigquery.SchemaField("low", "FLOAT64"),
-                    bigquery.SchemaField("close", "FLOAT64"),
-                    bigquery.SchemaField("volume", "INTEGER"),
-                    bigquery.SchemaField("ticker_symbol", "STRING"),
-                    bigquery.SchemaField("exchange_name", "STRING"),
-                    bigquery.SchemaField("country", "STRING"),
-                    bigquery.SchemaField("is_adjusted", "BOOLEAN"),
-                ],
-            )
-
-            logger.info(f"Loading {len(gcs_uris)} rows into temporary table {temp_table_id}")
-            for gcs_uri in gcs_uris:
-                try:
-                    load_job = self.bq_client.load_table_from_uri(
-                        gcs_uri, 
-                        temp_table_id,
-                        job_config=job_config
-                    )
-
-                    load_job.result()
-            
-                except Exception:
-                    logger.exception('Error loading CSV into temp table', gcs_uri)
-                    return
-
-
-            fact_price_history_table_id = f"{project_id}.{dataset_id}.fact_price_history"
-    
-            insert_query = f"""
-                INSERT INTO `{fact_price_history_table_id}` (
-                    asset_key, snapshot_date, snapshot_timestamp, ingestion_timestamp,
-                    open_price, high_price, low_price, close_price, 
-                    volume, is_adjusted, data_source
-                    )
-                SELECT
-                    FARM_FINGERPRINT(S.ticker_symbol || S.exchange_name) AS asset_key,
-                    CAST(S.timestamp AS DATE) AS snapshot_date,
-                    CAST(S.timestamp AS TIMESTAMP) AS snapshot_timestamp,
-                    CURRENT_TIMESTAMP() AS ingestion_timestamp,
-                    CAST(S.open AS NUMERIC) AS open_price,
-                    CAST(S.close AS NUMERIC) AS close_price,
-                    CAST(S.high AS NUMERIC) AS high_price,
-                    CAST(S.low AS NUMERIC) AS low_price,
-                    CAST(S.volume AS NUMERIC) AS volume,
-                    CAST(S.is_adjusted AS BOOLEAN) AS is_adjusted,
-                    'alphavantage' AS data_source
-                FROM `{{temp_table_id}}` S
-            """
-            # Execute the main transform query (MERGE or INSERT)
-            final_query = insert_query.format(temp_table_id=temp_table_id)
-            logger.info(f"Executing transform query into {fact_price_history_table_id}")
-            logger.debug(final_query)
-            query_job = client.query(final_query)
-            query_job.result()
-            logger.info("Transform query completed successfully.")
-
-        except Exception as e:
-            logger.error(f"Error during BigQuery load/transform process: {e}")
-        #    logger.info(final_query)
-            raise 
-        #finally:
-            #logger.info(f"Deleting temporary table {temp_table_id}")
-            #client.delete_table(temp_table_id, not_found_ok=True)
-
-
-
-    def get_files_to_load(self) -> List[str]:
+    def get_files_to_load(self) -> list[str]:
         """
         Get list of CSV files to load from GCS.
         
@@ -162,136 +75,254 @@ class AlphaVantageLoader:
         except Exception:
             logger.exception(f"Error loading manifest file: {manifest_path}")
             return []
-
-            #return self._list_files_from_gcs()
     
-    def _list_files_from_gcs(self) -> List[str]:
-        """Fallback: list all CSV files for the run date"""
-        prefix = f"raw/{MODE}/{DIRECTORY}"
-        
-        blobs = self.bucket.list_blobs(prefix=prefix)
-        gcs_uris = []
-        
-        for blob in blobs:
-            # Filter by run date and CSV extension
-            if self.run_date in blob.name and blob.name.endswith('.csv'):
-                gcs_uris.append(f"gs://{GCS_BUCKET}/{blob.name}")
-        
-        logger.info(f"📂 Found {len(gcs_uris)} files in GCS")
-        return gcs_uris
-    
-    def load_file_to_bq(self, gcs_uri: str) -> bool:
-        """
-        Load a single CSV file from GCS to BigQuery.
-        
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            logger.info(f"Loading {gcs_uri} to {self.table_id}")
-            
-            # Configure load job
-            job_config = bigquery.LoadJobConfig(
-                source_format=bigquery.SourceFormat.CSV,
-                skip_leading_rows=1,
-                autodetect=False,  # Use explicit schema
-                write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-                schema=[
-                    bigquery.SchemaField("asset_key", "INTEGER"),
-                    bigquery.SchemaField("snapshot_timestamp", "TIMESTAMP"),
-                    bigquery.SchemaField("ingestion_timestamp", "TIMESTAMP"),
-                    bigquery.SchemaField("snapshotDate", "DATE"),
-                    bigquery.SchemaField("open_price", "FLOAT64"),
-                    bigquery.SchemaField("high_price", "FLOAT64"),
-                    bigquery.SchemaField("low_price", "FLOAT64"),
-                    bigquery.SchemaField("close_price", "FLOAT64"),
-                    bigquery.SchemaField("volume", "INTEGER"),
-                    bigquery.SchemaField("datasource", "STRING"),
-                    bigquery.SchemaField("is_adjusted", "BOOLEAN"),
-                ],
-                # Optional: add symbol from filename
-                schema_update_options=[
-                    bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION
-                ],
-            )
-            
-            # Start load job
-            load_job = self.bq_client.load_table_from_uri(
-                gcs_uri, 
-                self.table_id, 
-                job_config=job_config
-            )
-            
-            # Wait for completion
-            load_job.result()
-            
-            # Log stats
-            dest_table = self.bq_client.get_table(self.table_id)
-            logger.info(f"✅ Loaded {load_job.output_rows} rows from {gcs_uri}")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to load {gcs_uri}: {e}", exc_info=True)
-            return False
     
     def move_to_processed(self, gcs_uri: str):
         """Move successfully loaded files to processed folder"""
         try:
-            # Extract blob path from URI
             blob_path = gcs_uri.replace(f"gs://{GCS_BUCKET}/", "")
             source_blob = self.bucket.blob(blob_path)
             
-            # Create destination path
             dest_path = blob_path.replace("raw/", "processed/")
             dest_blob = self.bucket.blob(dest_path)
             
-            # Copy and delete
             self.bucket.copy_blob(source_blob, self.bucket, dest_path)
             source_blob.delete()
             
             logger.info(f"📦 Moved {blob_path} to {dest_path}")
             
         except Exception as e:
-            logger.warning(f"Could not move file to processed: {e}")
-    
-    def run(self):
-        """Execute the loading pipeline"""
-        logger.info(f"🚀 Starting load for {MODE} mode, date: {self.run_date}")
+            logger.exception(f"Could not move file to processed:")
+
+   
+    def _load_to_temp(self, gcs_uris: list[str]) -> dict[str, Any]:
+        """
+        Load all CSV files from GCS into a single temporary table.
         
-        gcs_files = self.get_files_to_load()
+        Returns dict with success/failure info and temp_table_id.
+        """
+        if not gcs_uris:
+            return {"success": False, "temp_table_id": None, "failed_files": []}
         
-        if not gcs_files:
-            logger.warning("⚠️  No files to load")
-            return 1
+        temp_table_name = f"temp_av_load_{uuid.uuid4().hex}"
+        temp_table_id = f"{BQ_PROJECT}.{BQ_DATASET}.{temp_table_name}"
+        self.temp_table_id = temp_table_id
         
         results = {
-            "success": [],
-            "failed": []
+            "success": True,
+            "temp_table_id": temp_table_id,
+            "loaded_files": [],
+            "failed_files": []
         }
-
-        self._load_and_transform(BQ_PROJECT, BQ_DATASET, gcs_files, '', '')
         
-   #     for gcs_uri in gcs_files:
-   #         success = self.load_file_to_bq(gcs_uri)
-   #         
-   #         if success:
-   #             results["success"].append(gcs_uri)
-   #             # Optionally move to processed
-   #             # self.move_to_processed(gcs_uri)
-   #         else:
-   #             results["failed"].append(gcs_uri)
-   #     
-   #     # Log summary
-   #     total = len(gcs_files)
-   #     success_count = len(results["success"])
-   #     logger.info(f"📊 Load complete: {success_count}/{total} files loaded")
-   #     
-   #     if results["failed"]:
-   #         logger.warning(f"⚠️  Failed files: {results['failed']}")
-   #     
-   #     # Return 0 if at least one file loaded successfully
-   #     return 0 if results["success"] else 1
+        job_config = bigquery.LoadJobConfig(
+            source_format=bigquery.SourceFormat.CSV,
+            skip_leading_rows=1,
+            autodetect=False,
+            write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+            schema=[
+                bigquery.SchemaField("timestamp", "DATE"),
+                bigquery.SchemaField("open", "FLOAT64"),
+                bigquery.SchemaField("high", "FLOAT64"),
+                bigquery.SchemaField("low", "FLOAT64"),
+                bigquery.SchemaField("close", "FLOAT64"),
+                bigquery.SchemaField("volume", "INTEGER"),
+                bigquery.SchemaField("ticker_symbol", "STRING"),
+                bigquery.SchemaField("exchange_name", "STRING"),
+                bigquery.SchemaField("country", "STRING"),
+                bigquery.SchemaField("is_adjusted", "BOOLEAN"),
+            ],
+        )
+        
+        logger.info(f"📥 Loading {len(gcs_uris)} files into temp table {temp_table_id}")
+        
+        for gcs_uri in gcs_uris:
+            try:
+                logger.info(f"  Loading {gcs_uri}")
+                
+                load_job = self.bq_client.load_table_from_uri(
+                    gcs_uri,
+                    temp_table_id,
+                    job_config=job_config
+                )
+                
+                load_job.result()
+                
+                rows_loaded = load_job.output_rows or 0
+                logger.info(f"  ✅ Loaded {rows_loaded} rows")
+                results["loaded_files"].append(gcs_uri)
+                
+            except google_exceptions.NotFound:
+                logger.exception(f"  ❌ File not found: {gcs_uri}")
+                results["failed_files"].append(gcs_uri)
+            except Exception as e:
+                logger.exception(f"  ❌ Failed to load {gcs_uri}")
+                results["failed_files"].append(gcs_uri)
+        
+        if not results["loaded_files"]:
+            results["success"] = False
+            logger.error("❌ No files loaded successfully")
+        else:
+            logger.info(f"✅ Loaded {len(results['loaded_files'])}/{len(gcs_uris)} files to temp table")
+        
+        return results
+    
+    def _transform_and_insert(self, temp_table_id: str) -> bool:
+        """
+        Transform data from temp table and insert into fact_price_history.
+        Uses your original query logic.
+        """
+        fact_table_id = f"{BQ_PROJECT}.{BQ_DATASET}.fact_price_history"
+        
+        insert_query = f"""
+            INSERT INTO `{fact_table_id}` (
+                asset_key, snapshot_date, snapshot_timestamp, ingestion_timestamp,
+                open_price, high_price, low_price, close_price, 
+                volume, is_adjusted, data_source
+            )
+            SELECT
+                FARM_FINGERPRINT(S.ticker_symbol || S.exchange_name) AS asset_key,
+                CAST(S.timestamp AS DATE) AS snapshot_date,
+                CAST(S.timestamp AS TIMESTAMP) AS snapshot_timestamp,
+                CURRENT_TIMESTAMP() AS ingestion_timestamp,
+                CAST(S.open AS NUMERIC) AS open_price,
+                CAST(S.high AS NUMERIC) AS high_price,
+                CAST(S.low AS NUMERIC) AS low_price,
+                CAST(S.close AS NUMERIC) AS close_price,
+                CAST(S.volume AS INT64) AS volume,
+                CAST(S.is_adjusted AS BOOLEAN) AS is_adjusted,
+                'alphavantage' AS data_source
+            FROM `{temp_table_id}` S
+        """
+        
+        try:
+            logger.info(f"🔄 Transforming and inserting data into {fact_table_id}")
+            logger.debug(f"Query: {insert_query}")
+            
+            query_job = self.bq_client.query(insert_query)
+            query_job.result()
+            
+            rows_inserted = query_job.num_dml_affected_rows or 0
+            logger.info(f"✅ Successfully inserted {rows_inserted} rows")
+            
+            return True
+            
+        except Exception as e:
+            logger.exception(f"❌ Transform/insert failed:")
+            return False
+    
+    def _move_to_processed(self, gcs_uris: list[str]) -> dict[str, list[str]]:
+        """
+        Move successfully loaded files from raw/ to processed/ folder.
+        
+        Returns dict with 'moved' and 'failed' lists.
+        """
+        results = {"moved": [], "failed": []}
+        
+        logger.info(f"📦 Moving {len(gcs_uris)} files to processed folder")
+        
+        for gcs_uri in gcs_uris:
+            try:
+                # Extract blob path from URI
+                blob_path = gcs_uri.replace(f"gs://{GCS_BUCKET}/", "")
+                source_blob = self.bucket.blob(blob_path)
+                
+                # Create destination path (raw/ -> processed/)
+                dest_path = blob_path.replace("raw/", "processed/")
+                
+                dest_blob = self.bucket.copy_blob(
+                    source_blob,
+                    self.bucket,
+                    dest_path
+                )
+                
+                source_blob.delete()
+                
+                logger.info(f"  ✅ Moved {blob_path} → {dest_path}")
+                results["moved"].append(gcs_uri)
+                
+            except google_exceptions.NotFound:
+                logger.warning(f"  ⚠️  Source file not found: {gcs_uri}")
+                results["failed"].append(gcs_uri)
+            except Exception as e:
+                logger.error(f"  ❌ Failed to move {gcs_uri}: {e}", exc_info=True)
+                results["failed"].append(gcs_uri)
+        
+        logger.info(f"📦 Moved {len(results['moved'])}/{len(gcs_uris)} files")
+        
+        if results["failed"]:
+            logger.warning(f"⚠️  Failed to move: {results['failed']}")
+        
+        return results
+    
+    def _cleanup_temp_table(self):
+        """Delete the temporary table"""
+        if not self.temp_table_id:
+            return
+        
+        try:
+            logger.info(f"🧹 Deleting temporary table {self.temp_table_id}")
+            self.bq_client.delete_table(self.temp_table_id, not_found_ok=True)
+        except Exception as e:
+            logger.warning(f"Failed to delete temp table: {e}")
+    
+    def run(self) -> int:
+        """
+        Execute the loading pipeline.
+        
+        Returns 0 on success, 1 on failure.
+        """
+        logger.info(f"🚀 Starting load for {MODE} mode, date: {self.run_date}")
+        
+        try:
+            # Step 1: Get files to load
+            gcs_files = self.get_files_to_load()
+            
+            if not gcs_files:
+                logger.warning("⚠️  No files to load")
+                return 1
+            
+            # Step 2: Load all files to single temp table
+            load_results = self._load_to_temp(gcs_files)
+            
+            if not load_results["success"]:
+                logger.error("❌ Failed to load files to temp table")
+                return 1
+            
+            # Step 3: Transform and insert into final table
+            transform_success = self._transform_and_insert(load_results["temp_table_id"])
+            
+            if not transform_success:
+                logger.error("❌ Transform/insert failed")
+                return 1
+
+            # Step 4: Move successfully loaded files to processed folder
+            move_results = self._move_to_processed(load_results["loaded_files"])
+            
+            # Log summary
+            total = len(gcs_files)
+            success_count = len(load_results["loaded_files"])
+            moved_count = len(move_results["moved"])
+            
+            logger.info(f"📊 Pipeline complete:")
+            logger.info(f"   Files loaded: {success_count}/{total}")
+            logger.info(f"   Files moved: {moved_count}/{success_count}")
+            
+            if load_results["failed_files"]:
+                logger.warning(f"⚠️  Failed files: {load_results['failed_files']}")
+
+            if move_results["failed"]:
+                logger.warning(f"⚠️  Failed to move: {move_results['failed']}")
+            
+            return 0
+            
+        except Exception as e:
+            logger.exception(f"💥 Fatal error in pipeline: {e}")
+            return 1
+        
+        finally:
+            # Always cleanup temp table
+            self._cleanup_temp_table()
 
 
 def main():
@@ -309,7 +340,7 @@ def main():
         
     except Exception as e:
         logger.exception("💥 Fatal error in load pipeline")
-        print(json.dumps({
+        logger.info(json.dumps({
             "message": f"Load failed: {str(e)}",
             "severity": "ERROR"
         }))
