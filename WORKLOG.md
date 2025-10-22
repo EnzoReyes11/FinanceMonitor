@@ -1,10 +1,25 @@
 # Worklog
 
+### 21/10/25
+#### Done
+- Extract and Load from AV done. Tested for the Daily input.
+- Manually added more stocks into dim_asset.
+
+#### Working on
+- Test the Backfill run.
+- Unit test. Boring, but necessary.
+
+#### Next
+- Ingesting my daily transactions.
+
+
+
 ### 20/10/25
 Today was another long day. Made a lot of progress into getting the latest values from
 Alpha Vantage. The daily limit is only 25 request, which is too low.
 I will consider other options to get the values, maybe yfinance.
 
+#### Done
 - Added terraform scripts to generate BQ dataset
 - A script to populate dim_date
 - Manually populating DIM Asset now
