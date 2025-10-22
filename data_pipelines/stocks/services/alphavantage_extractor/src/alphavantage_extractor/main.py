@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Optional
 
 from alphavantage.client import AlphaVantageClient
 from dotenv import load_dotenv
@@ -47,7 +47,7 @@ class AlphaVantageExtractor:
         utc_minus_3 = timezone(timedelta(hours=-3))
         self.run_date = RUN_DATE or datetime.now(utc_minus_3).strftime("%Y-%m-%d")
         
-    def get_symbols_to_process(self) -> List[tuple[str, str, str]]:
+    def get_symbols_to_process(self) -> list[tuple[str, str, str]]:
         """Read symbols from BigQuery that need processing"""
         query = f"""
             SELECT DISTINCT ticker_symbol, exchange_country, exchange_code
@@ -55,7 +55,7 @@ class AlphaVantageExtractor:
             WHERE 
               exchange_country = 'US' 
               AND is_active = TRUE 
-              AND asset_type = 'STOCK'
+              AND asset_type IN ('STOCK', 'ETF')
             ORDER BY ticker_symbol
         """
         
@@ -65,8 +65,8 @@ class AlphaVantageExtractor:
             logger.info(f"Found {len(symbols)} symbols to process")
             return symbols
         except Exception as e:
-            logger.warning(f"Could not read from BQ, using defaults: {e}")
-            return [("GOOG", "US", "NASDAQ")] 
+            logger.exception(f"Could not read from BQ.")
+            return []
     
     def extract_symbol(self, symbol: str, country: str, exchange: str) -> Optional[str]:
         """
@@ -98,13 +98,14 @@ class AlphaVantageExtractor:
             blob_path = f"raw/{MODE}/{DIRECTORY}/{country}_{exchange}_{symbol}/{self.run_date}.csv"
         
             logger.debug('BUCKET ' + GCS_BUCKET)
-            # Upload to GCS
+            
             blob = self.bucket.blob(blob_path)
             blob.upload_from_string(data.to_csv(index=False), content_type="text/csv")
 
+            utc_minus_3 = timezone(timedelta(hours=-3))
             # Add metadata for tracking
             blob.metadata = {
-                "extracted_at": datetime.now(timezone.utc).isoformat(),
+                "extracted_at": datetime.now(utc_minus_3).isoformat(),
                 "mode": MODE,
                 "symbol": symbol
             }
@@ -155,13 +156,11 @@ class AlphaVantageExtractor:
                     "exchange": exchange,
                     })
         
-        # Log summary
         logger.info(f"📊 Extraction complete: {len(results['success'])}/{results['total']} successful")
         
         if results["failed"]:
             logger.warning(f"⚠️  Failed symbols: {results['failed']}")
         
-        # Write manifest file for downstream processing
         self._write_manifest(results)
         
         # Return exit code: 0 if at least one symbol succeeded
@@ -172,10 +171,11 @@ class AlphaVantageExtractor:
         manifest_path = f"manifests/{MODE}/{DIRECTORY}/{self.run_date}.json"
         blob = self.bucket.blob(manifest_path)
         
+        utc_minus_3 = timezone(timedelta(hours=-3))
         manifest = {
             "run_date": self.run_date,
             "mode": MODE,
-            "extracted_at": datetime.now(timezone.utc).isoformat(),
+            "extracted_at": datetime.now(utc_minus_3).isoformat(),
             "results": results
         }
         
