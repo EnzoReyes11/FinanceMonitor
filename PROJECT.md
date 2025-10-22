@@ -92,6 +92,7 @@ financemonitor/
 - Add/migrate the IOL code.
 - Expose endpoints for the Portfolio API to query on demand values. This could be a Cloud Function.
 - Consider integrating yfinance to work aroung the AV daily limit.
+- Configure the timezone with an ENV var.
 
 ## Technologies
 - Google Cloud Platform (GCP)

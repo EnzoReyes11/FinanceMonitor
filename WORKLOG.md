@@ -1,5 +1,17 @@
 # Worklog
 
+### 22/10/25
+Both daily and backfill run beautifully. At this point I'm also ready to stop the old service.
+I need to add more assets, but also add the transactions. Or at least a table with the amounts
+I'm currently holding.
+
+I'm going to implement the hole process before starting the unit tests.
+
+#### Done
+- Tested the backfill. 
+- Generated some unit test, but won't commit that code for now. I'll send it to a
+branch so I don't lose it.
+
 ### 21/10/25
 #### Done
 - Extract and Load from AV done. Tested for the Daily input.
@@ -7,9 +19,9 @@
 
 #### Working on
 - Test the Backfill run.
-- Unit test. Boring, but necessary.
 
 #### Next
+- Unit tests. Boring, but necessary.
 - Ingesting my daily transactions.
 
 
