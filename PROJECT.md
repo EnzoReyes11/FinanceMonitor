@@ -89,6 +89,7 @@ financemonitor/
   1. Populate assets not in dim_asset using the transaction's data.
   1. Create a new LookerStudio dashboard.
 - Migrate the LECAP' scraper.
+  - Lecap scraper should skip corrupted rows, not fail the whole process.
 - Add/migrate the IOL code.
 - Expose endpoints for the Portfolio API to query on demand values. This could be a Cloud Function.
 - Consider integrating yfinance to work aroung the AV daily limit.
