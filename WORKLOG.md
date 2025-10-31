@@ -1,5 +1,19 @@
 # Worklog
 
+### 30/10/25
+Today the lecap-scraper job failed. I received the notification on my phone, as I'm using Cloud Alerts.
+It turns out that the pdf file on IAMC was corrupted, a row had TNA as #DIV/0 error. The script was trying to
+convert this row to an int, and choked.
+
+I did not have any time to fix this, as I'm preparing a demo for a private project. It shouldn't completely fail
+if a row is corrupted. It should skip it and continue with the next one.
+
+Anyway, I checked again on the IAMC site and the pdf was fixed, so I re-run the job and it finished succesfully.
+
+#### Done
+- Diagnosed an issue. Adding it to the backlog.
+- Manually re run the job.
+
 ### 22/10/25
 Both daily and backfill run beautifully. At this point I'm also ready to stop the old service.
 I need to add more assets, but also add the transactions. Or at least a table with the amounts
