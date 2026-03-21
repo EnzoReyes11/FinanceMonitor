@@ -1,54 +1,52 @@
-# Project Files
-**_temp_**
+# Dependencies
+**/node_modules/
+**/venv/
+**/__pycache__/
+*.pyc
 
-# Logs
-*.log
+# Build output
+dist/
+build/
+out/
 
-# Environments
+# Environment
 .env
-.envrc
-.venv
-env/
-venv/
-ENV/
-env.yml
+*.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Agents
+.claude/
+.agents/
+.agent/
 
 # Terraform
-**terraform.tfvars
-**.terraform/
-**plan
-**terraform.tfstate
-**terraform.tfstate.backup
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
+backend.hcl
+**/backend.hcl
 
-# Byte-compiled / optimized / DLL files
+# Terraform plugin cache
+.terraform.d/
+
+# Python
 __pycache__/
-*.py[codz]
-*$py.class
+*.py[cod]
+*.class
+*.zip
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Tests
-.coverage
+# Secrets
+*.pem
+*.key
+credentials.json
