@@ -1,0 +1,13 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: FinanceMonitor
+  description: Tools for the retail investor
+  annotations:
+    github.com/project-slug: EnzoReyes11/FinanceMonitor
+    backstage.io/techdocs-ref: dir:.
+    scaffolder.backstage.io/template: bare-minimum@1.0.0
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/internal
